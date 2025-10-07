@@ -137,7 +137,9 @@ class ReLU(Module):
             in the input is replaced with 0.
         """
         # TODO: YOUR CODE HERE
-        pass
+        self.mask = (x > 0)
+        return torch.where(self.mask, x, torch.zeros_like(x))
+
     
     def bwd(self, out, x):
         """
@@ -156,7 +158,8 @@ class ReLU(Module):
             x.g: The gradient with respect to the input `x`.
         """
         # TODO: YOUR CODE HERE
-        pass
+        x.g = zeros_like(x)
+        x.g += out.g * self.mask
 
 class Flatten(Module):
     """
@@ -182,7 +185,9 @@ class Flatten(Module):
           you can reverse this operation in the backward pass.
         """
         # TODO: YOUR CODE HERE
-        pass
+        self.shape = x.shape
+        N = x.shape[0]
+        return x.view(N, -1)
     
     def bwd(self, out, x):
         """
@@ -200,7 +205,7 @@ class Flatten(Module):
                  the original input shape you saved in the forward pass.
         """
         # TODO: YOUR CODE HERE
-        pass
+        x.g = out.g.view(self.shape)
 # ============================================================================
 # FULLY CONNECTED LAYER - YOUR IMPLEMENTATION NEEDED
 # ============================================================================
@@ -231,7 +236,7 @@ class Linear(Module):
             An output tensor `y` of shape [N, out_features].
         """
         # TODO: YOUR CODE HERE
-        pass
+        return x @ self.w + self.b
     
     def bwd(self, out, x):
         """
@@ -250,7 +255,13 @@ class Linear(Module):
             self.b.g (bias gradient): How much did `b` affect the loss? (sum of out.g)
         """
         # TODO: YOUR CODE HERE
-        pass
+        x.g = zeros_like(x)
+        self.w.g = zeros_like(self.w)
+        self.b.g = zeros_like(self.b)
+
+        x.g += out.g @ self.w.T
+        self.w.g += x.T @ out.g
+        self.b.g += out.g.sum(dim=0)
 
 # ============================================================================
 # CONVOLUTIONAL LAYER - YOUR IMPLEMENTATION NEEDED
@@ -316,7 +327,19 @@ class Conv2D(Module):
         
         # TODO: YOUR CODE HERE
         # return out_cols.view(N, self.cout, H_out, W_out)
-        pass
+        self.X_unf = F.unfold(x, kernel_size=(self.kH, self.kW),
+                              dilation=1, padding=self.padding, stride=self.stride)
+        self.W_flat = self.W.view(self.cout, -1)
+        
+        H_out = (H + 2*self.padding[0] - self.kH)//self.stride[0] + 1
+        W_out = (W + 2*self.padding[1] - self.kW)//self.stride[1] + 1
+        self.out_spatial = (H_out, W_out)
+
+        out_cols = torch.einsum('ck,nkl->ncl', self.W_flat, self.X_unf)
+        if self.b is not None:
+            out_cols = out_cols + self.b.view(1, -1, 1)
+
+        return out_cols.view(N, self.cout, H_out, W_out)
     
     def bwd(self, out, x):
         """
@@ -362,7 +385,21 @@ class Conv2D(Module):
         G = out.g.view(N, self.cout, L)
         
         # TODO: YOUR CODE HERE
-        pass
+        self.W.g = zeros_like(self.W)
+        if self.b is not None:
+            self.b.g = zeros_like(self.b)
+
+        if self.b is not None:
+            self.b.g += G.sum(dim=(0, 2))
+        
+        Wg_flat = torch.einsum('ncl,nkl->ck', G, self.X_unf)
+        self.W.g += Wg_flat.view_as(self.W)
+
+        dX_unf = torch.einsum('kc,ncl->nkl', self.W_flat.T, G)
+        x.g = zeros_like(x)
+        x.g += F.fold(dX_unf, output_size=(H, W),
+                      kernel_size=(self.kH, self.kW),
+                      dilation=1, padding=self.padding, stride=self.stride)
 
 # ============================================================================
 # POOLING LAYER - YOUR IMPLEMENTATION NEEDED
@@ -404,7 +441,17 @@ class MaxPool2D(Module):
         """
         # TODO: YOUR CODE HERE
         # return self.max_vals.view(N, C, H_out, W_out)
-        pass
+        self.in_shape = x.shape
+        N, C, H, W = x.shape
+        X_unf = F.unfold(x, kernel_size=self.k, stride=self.stride)
+        self.k_elems = self.k[0]*self.k[1]
+        X_cols = X_unf.view(N, C, self.k_elems, -1)
+        self.max_vals, self.max_idx = X_cols.max(dim=2)
+        self.L = self.max_vals.shape[-1]
+        H_out = (H - self.k[0]) // self.stride[0] + 1
+        W_out = (W - self.k[1]) // self.stride[1] + 1
+        self.out_spatial = (H_out, W_out)
+        return self.max_vals.view(N, C, H_out, W_out)
     
     def bwd(self, out, x):
         """
@@ -431,7 +478,15 @@ class MaxPool2D(Module):
         4.  Set this final gradient image as `x.g`.
         """
         # TODO: YOUR CODE HERE
-        pass
+        N, C, H, W = self.in_shape
+        H_out, W_out = self.out_spatial
+        L = self.L
+        G = out.g.view(N, C, L)
+        dcols = torch.zeros((N, C, self.k_elems, L), device=x.device)
+        dcols.scatter_(2, self.max_idx.unsqueeze(2), G.unsqueeze(2))
+        dcols = dcols.view(N, C*self.k_elems, L)
+        x.g = zeros_like(x)
+        x.g += F.fold(dcols, output_size=(H, W), kernel_size=self.k, stride=self.stride)
 
 # ============================================================================
 # LOSS FUNCTION - YOUR IMPLEMENTATION NEEDED
@@ -469,7 +524,14 @@ class CrossEntropy(Module):
         """
         # TODO: YOUR CODE HERE
         # return self.out
-        pass
+        self.targets = targets
+        m = logits.max(dim=1, keepdim=True).values
+        logits_stable = logits - m
+        logsumexp = torch.logsumexp(logits_stable, dim=1, keepdim=True)
+        self.log_softmax = logits_stable - logsumexp
+        nll = -self.log_softmax[torch.arange(logits.shape[0], device=logits.device), targets]
+        self.out = nll.mean()
+        return self.out
     
     def bwd(self, out, logits, targets):
         """
@@ -494,7 +556,14 @@ class CrossEntropy(Module):
            gradient tensor by the batch size.
         """
         # TODO: YOUR CODE HERE
-        pass
+        m = logits.max(dim=1, keepdim=True).values
+        logits_stable = logits - m
+        exp = torch.exp(logits_stable)
+        probs = exp / exp.sum(dim=1, keepdim=True)
+        N = logits.shape[0]
+        probs[torch.arange(N, device=logits.device), targets] -= 1.0
+        logits.g = zeros_like(logits)
+        logits.g += probs / N
 
 # ============================================================================
 # MODEL CONTAINER - YOUR IMPLEMENTATION NEEDED
@@ -521,7 +590,9 @@ class Sequential:
             The final output from the last layer.
         """
         # TODO: YOUR CODE HERE
-        pass
+        for layer in self.layers:
+            x = layer(x)
+        return x
     
     def backward(self, last_out):
         """
@@ -534,7 +605,8 @@ class Sequential:
             last_out: The final output tensor from the forward pass.
         """
         # TODO: YOUR CODE HERE
-        pass
+        for layer in reversed(self.layers):
+            layer.backward()
 
 # ============================================================================
 # UTILITY FUNCTIONS (PROVIDED)
@@ -585,7 +657,16 @@ def build_cnn():
         A `Sequential` model containing the specified architecture.
     """
     # TODO: YOUR CODE HERE
-    pass
+    return Sequential(
+        Conv2D(1, 8, kernel_size=3, stride=1, padding=1),
+        ReLU(),
+        MaxPool2D(kernel_size=2, stride=2),
+        Conv2D(8, 16, kernel_size=3, stride=1, padding=1),
+        ReLU(),
+        MaxPool2D(kernel_size=2, stride=2),
+        Flatten(),
+        Linear(16*7*7, 10),
+    )
 
 # Create the network and loss function
 # TODO: Uncomment these lines after implementing build_cnn()
@@ -639,13 +720,16 @@ def train_model(net, criterion, X_train, y_train, X_val, y_val, epochs=5, batch_
     train_accs, val_accs = [], []
     
     # TODO: Implement training loop here
+    N_train = X_train.size(0)
     for epoch in range(1, epochs + 1):
         
         # TODO: Shuffle training indices
+    
+        idx = torch.randperm(N_train, device=DEVICE)
+        X_train = X_train[idx]; y_train = y_train[idx]
         
         # Initialize epoch statistics
-        ep_loss, ep_correct, ep_total = 0.0, 0, 0
-        
+        ep_loss_sum, ep_correct, ep_seen = 0.0, 0, 0
         # TODO: Mini-batch training loop
         # for i in range(0, X_train.size(0), batch_size):
         #     - Get batch indices and data
@@ -656,18 +740,39 @@ def train_model(net, criterion, X_train, y_train, X_val, y_val, epochs=5, batch_
         #     - Update parameters
         #     - Accumulate statistics
         
-        # TODO: Compute epoch training metrics
+        for i in range(0, N_train, batch_size):
+            xb = X_train[i:i+batch_size]; yb = y_train[i:i+batch_size]
+            logits = net(xb)
+            loss = criterion(logits, yb)
+            
+            for p in params: p.g = zeros_like(p)
+            criterion.backward(); net.backward(logits)
+            sgd_step(params, lr)
+            # TODO: Compute epoch training metrics
+            with torch.no_grad():
+                ep_loss_sum += loss.item() * xb.size(0)
+                ep_correct += (logits.argmax(1) == yb).sum().item()
+                ep_seen += xb.size(0)
+        
+        train_loss = ep_loss_sum / ep_seen
+        train_acc = ep_correct / ep_seen
         
         # TODO: Validation (inside a `with torch.no_grad():` block)
         #     - Forward pass on validation set
         #     - Compute validation loss and accuracy
+        with torch.no_grad():
+            val_logits = net(X_val)
+            val_loss = criterion(val_logits, y_val).item()
+            val_acc = accuracy(val_logits, y_val)
+        
+        train_losses.append(train_loss); val_losses.append(val_loss)
+        train_accs.append(train_acc); val_accs.append(val_acc)
+    
+        
 
         # TODO: Store metrics and print results for the epoch
-        
-        pass  # Remove this when you implement the loop
-    
+        print(f"Epoch {epoch:02d} | train loss {train_loss:.4f} acc {train_acc:.4f} | val loss {val_loss:.4f} acc {val_acc:.4f}")
     return train_losses, val_losses, train_accs, val_accs
-
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
@@ -678,44 +783,44 @@ if __name__ == "__main__":
     
     # TODO: Uncomment and run after implementing all components
     
-    # print("Building CNN...")
-    # net = build_cnn()
-    # criterion = CrossEntropy()
+    print("Building CNN...")
+    net = build_cnn()
+    criterion = CrossEntropy()
     
-    # print("Starting training...")
-    # train_losses, val_losses, train_accs, val_accs = train_model(
-    #     net, criterion, X_train, y_train, X_val, y_val,
-    #     epochs=5, batch_size=128, lr=0.01
-    # )
+    print("Starting training...")
+    train_losses, val_losses, train_accs, val_accs = train_model(
+        net, criterion, X_train, y_train, X_val, y_val,
+        epochs=5, batch_size=128, lr=0.01
+    )
     
-    # # Plot training curves
-    # epochs_axis = range(1, len(train_losses) + 1)
-    # plt.figure(figsize=(12, 4))
+    # Plot training curves
+    epochs_axis = range(1, len(train_losses) + 1)
+    plt.figure(figsize=(12, 4))
     
-    # plt.subplot(1, 2, 1)
-    # plt.plot(epochs_axis, train_losses, label='train')
-    # plt.plot(epochs_axis, val_losses, label='val')
-    # plt.title('Cross-Entropy Loss')
-    # plt.xlabel('Epoch')
-    # plt.ylabel('Loss')
-    # plt.legend()
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs_axis, train_losses, label='train')
+    plt.plot(epochs_axis, val_losses, label='val')
+    plt.title('Cross-Entropy Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
     
-    # plt.subplot(1, 2, 2)
-    # plt.plot(epochs_axis, train_accs, label='train')
-    # plt.plot(epochs_axis, val_accs, label='val')
-    # plt.title('Accuracy')
-    # plt.xlabel('Epoch')
-    # plt.ylabel('Accuracy')
-    # plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs_axis, train_accs, label='train')
+    plt.plot(epochs_axis, val_accs, label='val')
+    plt.title('Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
     
-    # plt.tight_layout()
-    # plt.show()
+    plt.tight_layout()
+    plt.show()
     
-    # # Final test evaluation
-    # with torch.no_grad():
-    #     test_logits = net(X_test)
-    #     test_loss = criterion(test_logits, y_test).item()
-    #     test_acc = accuracy(test_logits, y_test)
-    # print(f"\nFinal Test Results: loss {test_loss:.4f} | acc {test_acc:.4f}")
+    # Final test evaluation
+    with torch.no_grad():
+        test_logits = net(X_test)
+        test_loss = criterion(test_logits, y_test).item()
+        test_acc = accuracy(test_logits, y_test)
+    print(f"\nFinal Test Results: loss {test_loss:.4f} | acc {test_acc:.4f}")
     
-    print("Please implement the TODO sections to complete the assignment!")
+   
