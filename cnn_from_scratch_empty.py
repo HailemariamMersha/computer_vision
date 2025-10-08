@@ -20,6 +20,10 @@ WHAT YOU NEED TO IMPLEMENT:
 NOTE: All __init__ methods are provided - focus on the forward/backward pass logic!
 """
 # ============================================================================
+#author: Hailemariam Mersha
+#date: 2024-10-04
+#email:hbm934@nyu.edu
+# ============================================================================
 # DATA LOADING AND PREPROCESSING (PROVIDED)
 # ============================================================================
 DRIVE_DIR = "/enter/your/path/to/where/you/want/to/store/the/dataset/files"  # You can change this path. Please note that this should be in your scratch directory
