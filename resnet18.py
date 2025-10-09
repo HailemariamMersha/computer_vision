@@ -12,7 +12,6 @@
 # Date: 2024-10-04
 # Email: hbm9834@nyu.edu
 # ============================================================
-!pip install torch torchvision scikit-learn -q
 
 import torch
 import torch.nn as nn
