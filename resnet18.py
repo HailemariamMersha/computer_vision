@@ -1,13 +1,6 @@
 # ============================================================
 # Task 2 — Fine-Tuning ResNet-18 on EMNIST (byclass)
 # ============================================================
-# This script demonstrates how to fine-tune a pre-trained ResNet-18 model
-# on the EMNIST dataset using PyTorch. It includes three training regimes:
-# 1. Linear probing (only the final layer is trained)
-# 2. Partial unfreezing (last block + final layer)
-# 3. Full fine-tuning (all layers are trained)
-# The script also evaluates the model and visualizes results.
-# ============================================================
 # Author: Hailemariam Mersha
 # Date: 2024-10-04
 # Email: hbm9834@nyu.edu
@@ -20,7 +13,6 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import time
 
@@ -33,14 +25,13 @@ print("Using device:", device)
 # -------------------------
 # Preprocessing for EMNIST
 # -------------------------
-# EMNIST images need: rotate -90°, flip horizontal, resize 224, normalize with ImageNet stats
 transform = transforms.Compose([
-    transforms.Lambda(lambda x: transforms.functional.rotate(x, -90)),  # rotate -90
-    transforms.Lambda(lambda x: transforms.functional.hflip(x)),       # flip horizontal
-    transforms.Grayscale(num_output_channels=3),  # convert grayscale to 3 channels
+    transforms.Lambda(lambda x: transforms.functional.rotate(x, -90)),
+    transforms.Lambda(lambda x: transforms.functional.hflip(x)),
+    transforms.Grayscale(num_output_channels=3),
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],  # ImageNet mean/std
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225])
 ])
 
@@ -50,7 +41,7 @@ transform = transforms.Compose([
 dataset = datasets.EMNIST(root="./data", split="byclass", train=True, download=True, transform=transform)
 test_dataset = datasets.EMNIST(root="./data", split="byclass", train=False, download=True, transform=transform)
 
-num_classes = 62  # EMNIST byclass
+num_classes = 62
 train_size = int(0.9 * len(dataset))
 val_size = len(dataset) - train_size
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -68,21 +59,19 @@ def build_resnet(freeze_until="fc"):
     model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
     model.fc = nn.Linear(model.fc.in_features, num_classes)
 
-    if freeze_until == "fc":  # Linear probe
+    if freeze_until == "fc":
         for param in model.parameters():
             param.requires_grad = False
         for param in model.fc.parameters():
             param.requires_grad = True
-
-    elif freeze_until == "layer4":  # Partial unfreeze (last block + FC)
+    elif freeze_until == "layer4":
         for param in model.parameters():
             param.requires_grad = False
         for param in model.layer4.parameters():
             param.requires_grad = True
         for param in model.fc.parameters():
             param.requires_grad = True
-
-    elif freeze_until == "all":  # Full fine-tune
+    elif freeze_until == "all":
         for param in model.parameters():
             param.requires_grad = True
 
@@ -160,16 +149,20 @@ def run_experiment(freeze_until="fc", epochs=3, lr=0.001):
     print("\nClassification Report:")
     print(classification_report(labels, preds, digits=3))
 
-    # Confusion matrix
+    # Confusion matrix with matplotlib only
     cm = confusion_matrix(labels, preds)
     plt.figure(figsize=(12, 10))
-    sns.heatmap(cm, cmap="Blues", cbar=False)
+    plt.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
     plt.title(f"Confusion Matrix ({freeze_until})")
+    plt.colorbar()
+    tick_marks = np.arange(num_classes)
+    plt.xticks([])
+    plt.yticks([])
     plt.xlabel("Predicted")
     plt.ylabel("True")
+    plt.tight_layout()
     plt.show()
 
-    # Efficiency
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable Params: {params/1e6:.2f}M")
 
@@ -178,14 +171,10 @@ def run_experiment(freeze_until="fc", epochs=3, lr=0.001):
 # -------------------------
 # Try different regimes
 # -------------------------
-# 1. Linear probe
 model_fc, _ = run_experiment(freeze_until="fc", epochs=3, lr=0.001)
-
-# 2. Partial unfreeze
 model_l4, _ = run_experiment(freeze_until="layer4", epochs=3, lr=0.0005)
-
-# 3. Full fine-tune
 model_all, _ = run_experiment(freeze_until="all", epochs=3, lr=0.0001)
+
 print("Experiment completed.")
 print("Hailemariam Mersha")
 print("Netid: hbm9834")
