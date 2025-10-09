@@ -18,9 +18,9 @@ import torch.nn.functional as F
 # ============
 # Import your from-scratch layers
 # ============
-from cnn_from_scratch import (
-    Linear, ReLU, Flatten, Conv2D, MaxPool2D, CrossEntropy, Sequential
-)
+# from cnn_from_scratch import (
+#     Linear, ReLU, Flatten, Conv2D, MaxPool2D, CrossEntropy, Sequential
+# )
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(42)
@@ -290,10 +290,10 @@ def build_small_cnn():
     # Conv(4->8,k=3,p=1) -> ReLU -> Pool2
     # Flatten -> Linear(8*7*7->10)
     return Sequential(
-        Conv2D(1, 4, k=3, stride=1, padding=1),
+        Conv2D(1, 4, kernel_size=3, stride=1, padding=1),
         ReLU(),
         MaxPool2D(2,2),
-        Conv2D(4, 8, k=3, stride=1, padding=1),
+        Conv2D(4, 8, kernel_size=3, stride=1, padding=1),
         ReLU(),
         MaxPool2D(2,2),
         Flatten(),
