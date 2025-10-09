@@ -26,7 +26,7 @@ NOTE: All __init__ methods are provided - focus on the forward/backward pass log
 # ============================================================================
 # DATA LOADING AND PREPROCESSING (PROVIDED)
 # ============================================================================
-DRIVE_DIR = "/enter/your/path/to/where/you/want/to/store/the/dataset/files"  # You can change this path. Please note that this should be in your scratch directory
+DRIVE_DIR = "/scratch/hbm9834/mnist_data"  # You can change this path. Please note that this should be in your scratch directory
 import os
 os.makedirs(DRIVE_DIR, exist_ok=True)
 import torch
