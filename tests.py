@@ -18,9 +18,9 @@ import torch.nn.functional as F
 # ============
 # Import your from-scratch layers
 # ============
-# from cnn_from_scratch import (
-#     Linear, ReLU, Flatten, Conv2D, MaxPool2D, CrossEntropy, Sequential
-# )
+from cnn_from_scratch import (
+    Linear, ReLU, Flatten, Conv2D, MaxPool2D, CrossEntropy, Sequential
+)
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(42)
