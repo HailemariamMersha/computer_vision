@@ -1,7 +1,7 @@
 # Assignment 1 - CNN from Scratch & ResNet Fine-Tuning
 
 ## Repository Structure
-- `cnn_from_scratch.py` — Your implementation of a CNN framework from scratch and a tiny MNIST training run.
+- `cnn_from_scratch.py` — My implementation of a CNN framework from scratch and a tiny MNIST training run. I created a private repo and cloned it to HPC.
 - `tests.py` — Stage-by-stage numeric gradient checks and sanity tests for your framework.
 - `resnet18.py` — Fine-tuning ResNet-18 on EMNIST (linear probe, partial unfreeze, full fine-tune).
 - `task1.slurm` — SLURM script to run `tests.py` and `cnn_from_scratch.py`.
@@ -44,6 +44,7 @@ This SLURM script will run `resnet18.py`, which:
   - `task2.err`: contains runtime errors or warnings.
 
 ## Notes
+- Task 2 took too long so I used the output from Google Colab. I added a half complete batch files from HPC. 
 - Overlay image must be mounted in **read-only mode** (`:ro`) when submitting jobs, since multiple processes may access it.
 - Ensure the conda environment (`computer_vision`) is activated inside the SLURM scripts.
 - All figures for the report can be generated locally (e.g., Google Colab) if HPC plotting is not practical.
