@@ -47,9 +47,10 @@ class MovedObjectDetrDataset(Dataset):
             annotations={"image_id": img_id, "annotations": anns},
             return_tensors="pt",
         )
-        # Remove batch dimension
-        encoding = {k: v.squeeze(0) for k, v in encoding.items()}
-        return encoding
+        # Separate tensor fields from label list; squeeze batch on tensors only
+        pixel_values = encoding["pixel_values"].squeeze(0)
+        labels = encoding["labels"][0]
+        return {"pixel_values": pixel_values, "labels": labels}
 
 
 def detr_collate_fn(batch: List[Dict]) -> Dict:
