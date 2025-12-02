@@ -6,6 +6,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=%j_task3.out
 #SBATCH --error=%j_task3.err
+#this is to run DETR training for task 3
 
 SIF=/scratch/hbm9834/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif
 OVERLAY=/scratch/hbm9834/overlay-25GB-500K.ext3
