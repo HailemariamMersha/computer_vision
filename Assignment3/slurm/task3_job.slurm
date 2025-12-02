@@ -9,7 +9,11 @@
 
 SIF=/scratch/hbm9834/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif
 OVERLAY=/scratch/hbm9834/overlay-25GB-500K.ext3
+<<<<<<< HEAD
 PROJECT_ROOT=/scratch/hbm9834/Computer_vision/Assignment3
+=======
+PROJECT_ROOT=/scratch/hbm9834/assignment3_moved_detr
+>>>>>>> 459ca89 (update)
 
 singularity exec --bind /scratch --nv \
   --overlay ${OVERLAY}:ro \
