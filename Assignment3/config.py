@@ -5,9 +5,9 @@ import torch
 class Config:
     # Paths
     PROJECT_ROOT = "."
-    DATA_ROOT = "./cv_data_hw2"
-    MATCHED_ANN_DIR = "./matched_annotations"
-    OUTPUT_DIR = "./outputs"
+    DATA_ROOT = "/scratch/hbm9834/Computer_vision/Assignment3/cv_data_hw2"
+    MATCHED_ANN_DIR = "/scratch/hbm9834/Computer_vision/Assignment3/matched_annotations"
+    OUTPUT_DIR = "/scratch/hbm9834/Computer_vision/Assignment3/outputs"
     CHECKPOINT_DIR = os.path.join(OUTPUT_DIR, "checkpoints")
     LOG_DIR = os.path.join(OUTPUT_DIR, "logs")
     VIS_DIR = os.path.join(OUTPUT_DIR, "visualizations")
