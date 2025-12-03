@@ -7,12 +7,14 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from transformers import DetrImageProcessor
+from PIL import ImageChops
 
 
 class MovedObjectDetrDataset(Dataset):
     """
     PyTorch dataset that reads COCO JSON produced by build_coco_annotations.py
     and returns inputs compatible with DetrForObjectDetection.
+    Option 2: uses pixel-wise difference between frame1 and frame2 as the image input.
     """
 
     def __init__(self, coco_json_path: str, images_root: str, processor: DetrImageProcessor):
@@ -36,14 +38,26 @@ class MovedObjectDetrDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict:
         img_info = self.images[idx]
         img_id = img_info["id"]
-        img_path = self.images_root / img_info["file_name"]
-        image = Image.open(img_path).convert("RGB")
+        # Prefer explicit frame paths (written by updated build_coco_annotations.py); fallback to frame2 only.
+        frame1_name = img_info.get("file_name_frame1", img_info["file_name"])
+        frame2_name = img_info.get("file_name_frame2", img_info["file_name"])
+        img1_path = self.images_root / frame1_name
+        img2_path = self.images_root / frame2_name
+
+        image1 = Image.open(img1_path).convert("RGB")
+        image2 = Image.open(img2_path).convert("RGB")
+
+        # Compute pixel-wise absolute difference (Option 2)
+        if image1.size != image2.size:
+            # Align sizes if needed (rare for provided data)
+            image2 = image2.resize(image1.size)
+        diff_image = ImageChops.difference(image1, image2)
 
         anns = self.ann_by_image.get(img_id, [])
 
-        # The processor will build target dicts for DETR
+        # The processor will build target dicts for DETR using the diff image
         encoding = self.processor(
-            images=image,
+            images=diff_image,
             annotations={"image_id": img_id, "annotations": anns},
             return_tensors="pt",
         )

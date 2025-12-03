@@ -49,10 +49,10 @@ def _load_frame2_boxes(match_file: Path) -> List[Dict]:
     return boxes
 
 
-def _image_from_match_file(match_file: Path) -> Tuple[str, str]:
+def _image_from_match_file(match_file: Path) -> Tuple[str, str, str]:
     """
     Derive folder and frame2 filename from '<folder>-<img1>-<img2>_match.txt'.
-    Returns (folder_name, frame2_png_name).
+    Returns (folder_name, frame1_png_name, frame2_png_name).
     """
     stem = match_file.stem  # e.g., Pair_S_...-S_...-S_..._match
     if not stem.endswith("_match"):
@@ -61,8 +61,8 @@ def _image_from_match_file(match_file: Path) -> Tuple[str, str]:
     parts = stem.split("-")
     if len(parts) < 3:
         raise ValueError(f"Cannot parse match file name: {match_file.name}")
-    folder, _, img2 = parts[0], parts[1], parts[2]
-    return folder, f"{img2}.png"
+    folder, img1, img2 = parts[0], parts[1], parts[2]
+    return folder, f"{img1}.png", f"{img2}.png"
 
 
 def build_coco_from_matched_annotations(
@@ -96,11 +96,15 @@ def build_coco_from_matched_annotations(
 
     ann_id = 1
     for img_id, match_file in enumerate(files, start=1):
-        folder, frame2_name = _image_from_match_file(match_file)
-        rel_path = str(Path("data") / folder / frame2_name)
-        img_path = image_root_path / rel_path
+        folder, frame1_name, frame2_name = _image_from_match_file(match_file)
+        rel_path_frame1 = str(Path("data") / folder / frame1_name)
+        rel_path_frame2 = str(Path("data") / folder / frame2_name)
+        img_path = image_root_path / rel_path_frame2
         if not img_path.exists():
             raise FileNotFoundError(f"Image not found for {match_file.name}: {img_path}")
+        frame1_path = image_root_path / rel_path_frame1
+        if not frame1_path.exists():
+            raise FileNotFoundError(f"Frame1 image not found for {match_file.name}: {frame1_path}")
 
         img = cv2.imread(str(img_path))
         if img is None:
@@ -109,7 +113,16 @@ def build_coco_from_matched_annotations(
 
         boxes = _load_frame2_boxes(match_file)
         coco["images"].append(
-            {"id": img_id, "file_name": rel_path, "width": width, "height": height}
+            {
+                "id": img_id,
+                # Standard COCO field kept as frame2 for compatibility with processors/evaluators
+                "file_name": rel_path_frame2,
+                # Extra fields to allow Option 2 (pixel-wise diff)
+                "file_name_frame1": rel_path_frame1,
+                "file_name_frame2": rel_path_frame2,
+                "width": width,
+                "height": height,
+            }
         )
 
         for box in boxes:

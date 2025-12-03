@@ -1,52 +1,33 @@
 # Assignment 3 – Moved Object Detection (Option 2: Pixel Diff into DETR)
 
-This repo implements the Option 2 pipeline: take frame differences via the provided matcher, convert to COCO, fine-tune `facebook/detr-resnet-50`, and evaluate.
+This repo implements Option 2 as described in the handout: take the pixel-wise difference between two frames and fine-tune `facebook/detr-resnet-50` on the moved objects.
 
 ## Layout
-- `data_ground_truth_labeller.py` – provided matcher; generates `matched_annotations/` and `visual_matches/`.
-- `build_coco_annotations.py` – converts matcher outputs to COCO JSON splits.
-- `moved_dataset.py` – PyTorch dataset + collate for DETR.
-- `train_detr_moved.py` – training loop.
-- `eval_detr_moved.py` – evaluation + visuals.
-- `slurm/task3_job.slurm` – example SLURM script.
+- `data_ground_truth_labeller.py` – provided matcher; generates `matched_annotations/` and `visual_matches/` (IoU filter happens here).
+- `config.py` – paths, hyperparameters, and utility for creating output dirs.
+- `dataset.py` – Option 2 dataset: loads both frames, computes abs diff, and uses only the second-line boxes as targets.
+- `model.py` – DETR loader and fine-tuning strategy helper.
+- `train.py` – training loop using the pixel-diff dataset and standard DETR loss.
+- `slurm/task3_job.slurm` – example SLURM script (update paths before submitting).
 
-## Quickstart (local paths)
+## Quickstart (Option 2, local paths)
 ```bash
 # 0) from Assignment3/
-conda activate computer_vision  # or similar env with torch/transformers/opencv
+conda activate computer_vision  # env with torch/transformers/PIL/torchvision
 
-# 1) Generate matched annotations
-python data_ground_truth_labeller.py \
-  # defaults to cv_data_hw2 under this folder; override inside the script for HPC
+# 1) Generate matched annotations (IoU-based filtering handled inside)
+python data_ground_truth_labeller.py  # writes to ./matched_annotations by default
 
-# 2) Build COCO splits
-python build_coco_annotations.py \
-  --matched_dir matched_annotations \
-  --images_root cv_data_hw2 \
-  --output_dir annotations
-
-# 3) Train
-python train_detr_moved.py \
-  --images_root cv_data_hw2 \
-  --train_json annotations/annotations_train.json \
-  --val_json annotations/annotations_val.json \
-  --output_dir outputs/model
-
-# 4) Evaluate + visualize
-python eval_detr_moved.py \
-  --images_root cv_data_hw2 \
-  --test_json annotations/annotations_test.json \
-  --model_dir outputs/model \
-  --vis_dir results/vis
+# 2) Train on pixel-wise differences
+python train.py --strategy all  # or backbone_only/transformer_only/head_only
 ```
 
 ## HPC notes
-- Set `base_dir`, `output_ann_dir`, and `visual_dir` in `data_ground_truth_labeller.py` to your `/scratch/<netid>/...` paths.
-- Mirror the same paths in `build_coco_annotations.py` arguments and `train_detr_moved.py` flags.
-- Edit `slurm/task3_job.slurm` to point to your SIF/overlay and `PROJECT_ROOT`, then submit with `sbatch slurm/task3_job.slurm`.
+- Set paths in `config.py` (DATA_ROOT, MATCHED_ANN_DIR, OUTPUT_DIR) to your `/scratch/<netid>/...`.
+- Ensure `data_ground_truth_labeller.py` writes matched annotations to the same `MATCHED_ANN_DIR`.
+- Update `slurm/task3_job.slurm` with your SIF/overlay/PROJECT_ROOT and submit with `sbatch slurm/task3_job.slurm`.
 
 ## Outputs
-- `matched_annotations/` – matcher txt files (2 lines/object; second line is frame2 box).
-- `annotations/annotations_{train,val,test}.json` – COCO-format labels.
-- `outputs/model/` – fine-tuned DETR weights + processor.
-- `results/vis/` – qualitative overlays (green=GT, red=pred).
+- `matched_annotations/` – matcher txt files (2 lines/object; second line is frame2 box used for GT).
+- `outputs/checkpoints/` – DETR weights per epoch.
+- `outputs/logs/`, `outputs/visualizations/` – placeholders for logs/vis if you add them.
