@@ -7,6 +7,7 @@ import cv2
 import torch
 from torch.utils.data import DataLoader
 from transformers import DetrForObjectDetection, DetrImageProcessor
+from transformers.image_transforms import center_to_corners_format
 
 from config import Config
 from moved_dataset import MovedObjectDetrDataset, detr_collate_fn
@@ -126,8 +127,14 @@ def main():
 
         for i, res in enumerate(results):
             gt = labels[i]
-            gt_boxes = gt["boxes"].tolist()
-            gt_labels = gt["labels"].tolist()
+            # Convert GT from normalized cxcywh to absolute xyxy
+            gt_boxes_cxcywh = gt["boxes"]
+            orig_h, orig_w = gt["orig_size"].tolist()
+            gt_boxes_xyxy = center_to_corners_format(gt_boxes_cxcywh)
+            gt_boxes_xyxy[:, 0::2] *= orig_w
+            gt_boxes_xyxy[:, 1::2] *= orig_h
+            gt_boxes = gt_boxes_xyxy.tolist()
+            gt_labels = gt["class_labels"].tolist()
             pred_boxes = res["boxes"].tolist()
             pred_scores = res["scores"].tolist()
             pred_labels = res["labels"].tolist()
