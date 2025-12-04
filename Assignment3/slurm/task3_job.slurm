@@ -18,7 +18,7 @@ singularity exec --bind /scratch --nv \
     conda activate computer_vision
     cd ${PROJECT_ROOT}
     # Generate matched annotations once (uncomment if needed)
-    # python data_ground_truth_labeller.py
+    python data_ground_truth_labeller.py
     # Train on pixel-wise differences (config.py controls paths/hparams)
     python train.py --strategy all
   "
