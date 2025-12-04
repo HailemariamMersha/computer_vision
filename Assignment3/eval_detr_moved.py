@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import DetrForObjectDetection, DetrImageProcessor
 
+from config import Config
 from moved_dataset import MovedObjectDetrDataset, detr_collate_fn
 
 
@@ -64,7 +65,18 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate DETR moved-object model.")
     parser.add_argument("--images_root", type=str, default=str(script_dir / "cv_data_hw2"))
     parser.add_argument("--test_json", type=str, default=str(script_dir / "annotations/annotations_test.json"))
-    parser.add_argument("--model_dir", type=str, default=str(script_dir / "outputs/model"))
+    parser.add_argument(
+        "--ckpt",
+        type=str,
+        default=str(script_dir / "outputs/checkpoints/detr_option2_all_epoch19.pth"),
+        help="Path to .pth checkpoint saved by train.py",
+    )
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default="facebook/detr-resnet-50",
+        help="Base DETR model name to load weights/config from",
+    )
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--score_thresh", type=float, default=0.5)
@@ -76,10 +88,18 @@ def parse_args():
 
 def main():
     args = parse_args()
+    cfg = Config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    processor = DetrImageProcessor.from_pretrained(args.model_dir)
-    model = DetrForObjectDetection.from_pretrained(args.model_dir).to(device)
+    # Build processor and model from the base model name, then load .pth state dict
+    processor = DetrImageProcessor.from_pretrained(args.model_name)
+    model = DetrForObjectDetection.from_pretrained(
+        args.model_name,
+        num_labels=cfg.NUM_CLASSES,
+        ignore_mismatched_sizes=True,
+    ).to(device)
+    state_dict = torch.load(args.ckpt, map_location=device)
+    model.load_state_dict(state_dict)
 
     dataset = MovedObjectDetrDataset(args.test_json, args.images_root, processor)
     loader = DataLoader(
