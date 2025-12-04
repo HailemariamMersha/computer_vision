@@ -56,8 +56,16 @@ def build_samples(config: Config) -> List[Dict[str, str]]:
             img2_path = os.path.join(config.DATA_ROOT, img2_rel)
             ann2_name = os.path.basename(ann2_rel)
             folder_name = os.path.basename(os.path.dirname(img1_rel))
-            matched_ann_path = os.path.join(config.MATCHED_ANN_DIR, folder_name, ann2_name)
-            if not os.path.exists(matched_ann_path):
+            # Prefer new nested layout; fall back to flat files produced by the labeller.
+            candidates = [
+                os.path.join(config.MATCHED_ANN_DIR, folder_name, ann2_name),
+                os.path.join(
+                    config.MATCHED_ANN_DIR,
+                    f"{folder_name}-{os.path.splitext(os.path.basename(img1_rel))[0]}-{os.path.splitext(os.path.basename(img2_rel))[0]}_match.txt",
+                ),
+            ]
+            matched_ann_path = next((p for p in candidates if os.path.exists(p)), None)
+            if not matched_ann_path:
                 continue
             samples.append(
                 {
