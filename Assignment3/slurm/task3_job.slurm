@@ -23,6 +23,14 @@ singularity exec --bind /scratch --nv \
   ${SIF} /bin/bash -c "
     set -euo pipefail
     source /ext3/env.sh
+    # Avoid unset var errors from binutils hook during conda activate
+    export ADDR2LINE=\$(which addr2line 2>/dev/null || true)
+    export NM=\$(which nm 2>/dev/null || true)
+    export OBJCOPY=\$(which objcopy 2>/dev/null || true)
+    export OBJDUMP=\$(which objdump 2>/dev/null || true)
+    export READELF=\$(which readelf 2>/dev/null || true)
+    export STRINGS=\$(which strings 2>/dev/null || true)
+    export STRIP=\$(which strip 2>/dev/null || true)
     conda activate computer_vision
     cd ${PROJECT_ROOT}
     echo '=== Step 1/4: Generate matched annotations ==='
