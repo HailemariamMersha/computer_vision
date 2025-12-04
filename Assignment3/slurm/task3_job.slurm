@@ -32,6 +32,7 @@ singularity exec --bind /scratch --nv \
     export STRINGS=\$(which strings 2>/dev/null || true)
     export STRIP=\$(which strip 2>/dev/null || true)
     export AR=\$(which ar 2>/dev/null || true)
+    export CXXFILT=\$(which c++filt 2>/dev/null || true)
     conda activate computer_vision
     cd ${PROJECT_ROOT}
     echo '=== Step 1/4: Generate matched annotations ==='
