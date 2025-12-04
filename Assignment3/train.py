@@ -69,12 +69,22 @@ def parse_args():
         help="Fine-tuning strategy.",
     )
     parser.add_argument("--epochs", type=int, default=None, help="Override number of epochs.")
+    parser.add_argument("--lr", type=float, default=None, help="Override learning rate.")
+    parser.add_argument("--weight_decay", type=float, default=None, help="Override weight decay.")
+    parser.add_argument("--batch_size", type=int, default=None, help="Override batch size.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     config = Config()
+    # Allow simple CLI overrides for ablations.
+    if args.lr is not None:
+        config.LEARNING_RATE = args.lr
+    if args.weight_decay is not None:
+        config.WEIGHT_DECAY = args.weight_decay
+    if args.batch_size is not None:
+        config.BATCH_SIZE = args.batch_size
     Config.create_dirs()
 
     train_dataset = MovedObjectDataset(config, split="train")
