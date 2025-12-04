@@ -89,12 +89,12 @@ def main():
         # Predict
         with torch.no_grad():
             outputs = model(pixel_values=torch.stack([diff]).to(device))
-        pred_boxes_xyxy_norm = to_xyxy_norm(outputs.pred_boxes[0].cpu())
+        pred_boxes_xyxy_norm = to_xyxy_norm(outputs.pred_boxes[0])  # stays on device
         pred_scores = outputs.logits[0].softmax(-1)[:, :-1].max(-1)
 
         # Filter by score threshold
         keep = pred_scores.values >= args.score_thresh
-        pred_boxes_xyxy_norm = pred_boxes_xyxy_norm[keep]
+        pred_boxes_xyxy_norm = pred_boxes_xyxy_norm[keep].cpu()
 
         # Convert boxes to pixel coords
         pred_boxes_px = denorm_boxes(pred_boxes_xyxy_norm, cfg.IMAGE_WIDTH, cfg.IMAGE_HEIGHT)
