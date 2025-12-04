@@ -8,6 +8,7 @@ def create_model(config: Config):
     model = DetrForObjectDetection.from_pretrained(
         config.MODEL_NAME,
         num_labels=config.NUM_CLASSES,
+        ignore_mismatched_sizes=True,  # allow classifier head to be re-init for our label count
     )
     return model
 
