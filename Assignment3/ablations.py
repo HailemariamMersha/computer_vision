@@ -8,8 +8,8 @@ from pathlib import Path
 
 """
 Run a small set of ablations by invoking train.py with different strategies/LRs.
-Captures final train/val loss, saves the final checkpoint under a unique name,
-and (optionally) evaluates each checkpoint on the COCO test split.
+Captures final train/val loss/metrics, saves the best checkpoint under a unique name,
+and (optionally) evaluates each checkpoint on the processor-based val split (no COCO).
 """
 
 
@@ -25,10 +25,12 @@ ABLATIONS = [
 def parse_losses(log: str):
     """
     Look for the last line that looks like:
-    Epoch X/Y: train_loss=... val_loss=...
+    Epoch X/Y: train_loss=... val_loss=... val_prec=... val_rec=...
     """
     last_train = None
     last_val = None
+    last_prec = None
+    last_rec = None
     for line in log.strip().splitlines():
         if "train_loss=" in line and "val_loss=" in line:
             try:
@@ -38,9 +40,13 @@ def parse_losses(log: str):
                         last_train = float(p.split("=")[1])
                     if p.startswith("val_loss="):
                         last_val = float(p.split("=")[1])
+                    if p.startswith("val_prec="):
+                        last_prec = float(p.split("=")[1])
+                    if p.startswith("val_rec="):
+                        last_rec = float(p.split("=")[1])
             except ValueError:
                 continue
-    return last_train, last_val
+    return last_train, last_val, last_prec, last_rec
 
 
 def run_ablation(cfg, checkpoints_root: Path, args):
@@ -66,7 +72,7 @@ def run_ablation(cfg, checkpoints_root: Path, args):
             print("STDERR:\n", stderr)
         return None
 
-    train_loss, val_loss = parse_losses(stdout)
+    train_loss, val_loss, val_prec, val_rec = parse_losses(stdout)
 
     # Copy the best checkpoint to a unique filename for this ablation.
     final_ckpt = checkpoints_root / f"detr_option2_{cfg['strategy']}_best.pth"
@@ -93,6 +99,8 @@ def run_ablation(cfg, checkpoints_root: Path, args):
         "val_loss": val_loss,
         "ckpt": str(saved_ckpt) if saved_ckpt else "",
         "eval_metrics": str(eval_metrics_path) if eval_metrics_path else "",
+        "val_prec": val_prec,
+        "val_rec": val_rec,
     }
 
 
@@ -104,10 +112,6 @@ def eval_checkpoint(name: str, ckpt_path: Path, args) -> Path | None:
     cmd = [
         sys.executable,
         "eval_detr_moved.py",
-        "--images_root",
-        args.images_root,
-        "--test_json",
-        args.test_json,
         "--ckpt",
         str(ckpt_path),
         "--metrics_out",
@@ -136,18 +140,6 @@ def eval_checkpoint(name: str, ckpt_path: Path, args) -> Path | None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run training ablations (and optional evals).")
-    parser.add_argument(
-        "--images_root",
-        type=str,
-        default="cv_data_hw2",
-        help="Root directory with images for evaluation.",
-    )
-    parser.add_argument(
-        "--test_json",
-        type=str,
-        default="annotations/annotations_test.json",
-        help="COCO test JSON for evaluation.",
-    )
     parser.add_argument(
         "--metrics_dir",
         type=str,
@@ -182,16 +174,18 @@ def main():
     with out_path.open("w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=[
-                "name",
-                "strategy",
-                "lr",
-                "epochs",
-                "train_loss",
-                "val_loss",
-                "ckpt",
-                "eval_metrics",
-            ],
+        fieldnames=[
+            "name",
+            "strategy",
+            "lr",
+            "epochs",
+            "train_loss",
+            "val_loss",
+            "val_prec",
+            "val_rec",
+            "ckpt",
+            "eval_metrics",
+        ],
         )
         writer.writeheader()
         for row in results:

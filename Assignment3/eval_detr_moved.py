@@ -1,55 +1,57 @@
 import argparse
-import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import cv2
 import torch
 from torch.utils.data import DataLoader
+from torchvision.ops import box_iou
 from transformers import DetrForObjectDetection, DetrImageProcessor
-from transformers.image_transforms import center_to_corners_format
 
 from config import Config
-from moved_dataset import MovedObjectDetrDataset, detr_collate_fn
+from dataset import MovedObjectDataset, collate_fn_with_processor
 
 
-def compute_iou(box1: List[float], box2: List[float]) -> float:
-    x1, y1, w1, h1 = box1
-    x2, y2, w2, h2 = box2
-    xa, ya = max(x1, x2), max(y1, y2)
-    xb, yb = min(x1 + w1, x2 + w2), min(y1 + h1, y2 + h2)
-    inter = max(0, xb - xa) * max(0, yb - ya)
-    union = w1 * h1 + w2 * h2 - inter
-    return inter / union if union > 0 else 0.0
+def compute_pr(outputs, targets, processor, device, score_thresh=0.5, iou_thresh=0.5):
+    target_sizes = torch.tensor([t["size"] for t in targets], device=device)
+    processed = processor.post_process_object_detection(outputs, target_sizes=target_sizes, threshold=score_thresh)
+    tp = fp = fn = 0
+    all_matches: List[List[Tuple[int, int]]] = []
 
+    for preds, tgt in zip(processed, targets):
+        keep = preds["scores"] >= score_thresh
+        pred_boxes = preds["boxes"][keep].to(device)
+        pred_labels = preds["labels"][keep].to(device)
+        gt_boxes = tgt["boxes"].to(device)
+        gt_labels = tgt["class_labels"].to(device)
 
-def match_predictions(gt_boxes, gt_labels, pred_boxes, pred_labels, iou_thresh=0.5):
-    matched_gt = set()
-    tp = 0
-    fp = 0
-    matches: List[Tuple[int, int]] = []  # (gt_idx, pred_idx)
-    for pred_idx, (pb, pl) in enumerate(zip(pred_boxes, pred_labels)):
-        best_iou = 0.0
-        best_idx = None
-        for idx, (gb, gl) in enumerate(zip(gt_boxes, gt_labels)):
-            if idx in matched_gt or gl != pl:
+        matches: List[Tuple[int, int]] = []
+        if len(pred_boxes) == 0:
+            fn += len(gt_boxes)
+            all_matches.append(matches)
+            continue
+
+        ious = box_iou(pred_boxes, gt_boxes)
+        matched = set()
+        for i in range(len(pred_boxes)):
+            gi = torch.argmax(ious[i]).item()
+            if gi in matched:
                 continue
-            iou = compute_iou(gb, pb)
-            if iou > best_iou:
-                best_iou = iou
-                best_idx = idx
-        if best_iou >= iou_thresh and best_idx is not None:
-            tp += 1
-            matched_gt.add(best_idx)
-            matches.append((best_idx, pred_idx))
-        else:
-            fp += 1
-    fn = len(gt_boxes) - len(matched_gt)
-    return tp, fp, fn, matches
+            if ious[i, gi] >= iou_thresh and pred_labels[i] == gt_labels[gi]:
+                tp += 1
+                matched.add(gi)
+                matches.append((gi, i))
+            else:
+                fp += 1
+        fn += len(gt_boxes) - len(matched)
+        all_matches.append(matches)
+
+    precision = tp / max(1, tp + fp)
+    recall = tp / max(1, tp + fn)
+    return precision, recall, tp, fp, fn, all_matches
 
 
 def _color_from_index(idx: int) -> Tuple[int, int, int]:
-    # Deterministic pseudo-random color derived from index (BGR for OpenCV).
     r = 60 + (37 * idx) % 190
     g = 60 + (91 * idx) % 190
     b = 60 + (53 * idx) % 190
@@ -75,7 +77,6 @@ def draw_side_by_side(
     matched_pred_to_gt = {pred_idx: gt_idx for gt_idx, pred_idx in matches}
     matched_gt = {gt_idx for gt_idx, _ in matches}
 
-    # Draw GT boxes on final frame
     for gt_idx, (x, y, w, h) in enumerate(gt_boxes):
         color = _color_from_index(gt_idx)
         thickness = 2 if gt_idx in matched_gt else 1
@@ -90,7 +91,6 @@ def draw_side_by_side(
             1,
         )
 
-    # Draw predictions on final frame
     for pred_idx, ((x, y, w, h), score) in enumerate(zip(pred_boxes, pred_scores)):
         if score < score_thresh:
             continue
@@ -98,7 +98,7 @@ def draw_side_by_side(
             color = _color_from_index(matched_pred_to_gt[pred_idx])
             label = f"P{pred_idx} {score:.2f}"
         else:
-            color = (0, 0, 255)  # red for unmatched predictions
+            color = (0, 0, 255)
             label = f"P{pred_idx}* {score:.2f}"
         cv2.rectangle(img2, (int(x), int(y)), (int(x + w), int(y + h)), color, 2)
         cv2.putText(
@@ -111,13 +111,11 @@ def draw_side_by_side(
             1,
         )
 
-    # Concatenate initial/final frames
     if img1.shape[0] != img2.shape[0]:
         scale = img2.shape[0] / img1.shape[0]
         img1 = cv2.resize(img1, (int(img1.shape[1] * scale), img2.shape[0]))
     vis = cv2.hconcat([img1, img2])
 
-    # Titles
     cv2.putText(vis, "Initial", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
     cv2.putText(
         vis,
@@ -135,14 +133,12 @@ def draw_side_by_side(
 
 def parse_args():
     script_dir = Path(__file__).parent
-    parser = argparse.ArgumentParser(description="Evaluate DETR moved-object model.")
-    parser.add_argument("--images_root", type=str, default=str(script_dir / "cv_data_hw2"))
-    parser.add_argument("--test_json", type=str, default=str(script_dir / "annotations/annotations_test.json"))
+    parser = argparse.ArgumentParser(description="Evaluate DETR moved-object model (processor-based, no COCO).")
     parser.add_argument(
         "--ckpt",
         type=str,
-        default=str(script_dir / "outputs/checkpoints/detr_option2_all_epoch19.pth"),
-        help="Path to .pth checkpoint saved by train.py",
+        default=str(script_dir / "outputs/checkpoints/detr_option2_all_best.pth"),
+        help="Path to checkpoint saved by train.py",
     )
     parser.add_argument(
         "--model_name",
@@ -162,6 +158,7 @@ def parse_args():
         default=str(script_dir / "outputs/eval/metrics.txt"),
         help="Where to write precision/recall summary.",
     )
+    parser.add_argument("--split", type=str, default="val", choices=["train", "val"])
     return parser.parse_args()
 
 
@@ -170,7 +167,6 @@ def main():
     cfg = Config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Build processor and model from the base model name, then load .pth state dict
     processor = DetrImageProcessor.from_pretrained(args.model_name)
     model = DetrForObjectDetection.from_pretrained(
         args.model_name,
@@ -181,56 +177,49 @@ def main():
     state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     model.load_state_dict(state_dict)
 
-    dataset = MovedObjectDetrDataset(args.test_json, args.images_root, processor)
+    dataset = MovedObjectDataset(cfg, split=args.split)
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        collate_fn=detr_collate_fn,
+        collate_fn=collate_fn_with_processor(processor),
     )
 
     total_tp = total_fp = total_fn = 0
     vis_count = 0
 
-    for batch_idx, batch in enumerate(loader):
+    for batch in loader:
+        if batch is None:
+            continue
         pixel_values = batch["pixel_values"].to(device)
-        labels = batch["labels"]
-        target_sizes = torch.stack([lab["orig_size"] for lab in labels]).to(device)
+        labels = batch["orig_targets"]
 
         with torch.no_grad():
             outputs = model(pixel_values=pixel_values)
-        results = processor.post_process_object_detection(
-            outputs, target_sizes=target_sizes, threshold=args.score_thresh
+
+        prec, rec, tp, fp, fn, matches = compute_pr(
+            outputs, labels, processor, device, args.score_thresh, args.iou_thresh
+        )
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+
+        processed = processor.post_process_object_detection(
+            outputs, target_sizes=batch["orig_target_sizes"].to(device), threshold=args.score_thresh
         )
 
-        for i, res in enumerate(results):
+        for i, res in enumerate(processed):
             gt = labels[i]
-            # Convert GT from normalized cxcywh to absolute xyxy
-            gt_boxes_cxcywh = gt["boxes"]
-            orig_h, orig_w = gt["orig_size"].tolist()
-            gt_boxes_xyxy = center_to_corners_format(gt_boxes_cxcywh)
-            gt_boxes_xyxy[:, 0::2] *= orig_w
-            gt_boxes_xyxy[:, 1::2] *= orig_h
-            gt_boxes = gt_boxes_xyxy.tolist()
-            gt_labels = gt["class_labels"].tolist()
+            gt_boxes = gt["boxes"].tolist()
             pred_boxes = res["boxes"].tolist()
             pred_scores = res["scores"].tolist()
             pred_labels = res["labels"].tolist()
 
-            tp, fp, fn, matches = match_predictions(
-                gt_boxes, gt_labels, pred_boxes, pred_labels, args.iou_thresh
-            )
-            total_tp += tp
-            total_fp += fp
-            total_fn += fn
-
             if vis_count < args.max_vis:
-                img_info = dataset.images[batch_idx * loader.batch_size + i]
-                frame1_name = img_info.get("file_name_frame1", img_info["file_name"])
-                frame2_name = img_info.get("file_name_frame2", img_info["file_name"])
-                img1_path = Path(args.images_root) / frame1_name
-                img2_path = Path(args.images_root) / frame2_name
+                meta = gt.get("meta", {})
+                img1_path = Path(meta.get("img1_path", ""))
+                img2_path = Path(meta.get("img2_path", ""))
                 vis_path = Path(args.vis_dir) / f"vis_{vis_count:03d}.png"
                 draw_side_by_side(
                     img1_path,
@@ -239,7 +228,7 @@ def main():
                     pred_boxes,
                     pred_scores,
                     pred_labels,
-                    matches,
+                    matches[i] if i < len(matches) else [],
                     vis_path,
                     score_thresh=args.score_thresh,
                 )
@@ -256,7 +245,7 @@ def main():
                 "\n".join(
                     [
                         f"checkpoint: {args.ckpt}",
-                        f"test_json: {args.test_json}",
+                        f"split: {args.split}",
                         f"score_thresh: {args.score_thresh}",
                         f"iou_thresh: {args.iou_thresh}",
                         f"precision: {precision:.6f}",
