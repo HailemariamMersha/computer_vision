@@ -68,8 +68,8 @@ def run_ablation(cfg, checkpoints_root: Path, args):
 
     train_loss, val_loss = parse_losses(stdout)
 
-    # Copy the final checkpoint to a unique filename for this ablation.
-    final_ckpt = checkpoints_root / f"detr_option2_{cfg['strategy']}_epoch{cfg['epochs']}.pth"
+    # Copy the best checkpoint to a unique filename for this ablation.
+    final_ckpt = checkpoints_root / f"detr_option2_{cfg['strategy']}_best.pth"
     saved_ckpt = None
     if final_ckpt.exists():
         ablation_ckpt_dir = checkpoints_root / "ablations"

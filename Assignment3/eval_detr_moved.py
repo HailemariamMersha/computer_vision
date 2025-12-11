@@ -177,7 +177,8 @@ def main():
         num_labels=cfg.NUM_CLASSES,
         ignore_mismatched_sizes=True,
     ).to(device)
-    state_dict = torch.load(args.ckpt, map_location=device)
+    ckpt = torch.load(args.ckpt, map_location=device)
+    state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     model.load_state_dict(state_dict)
 
     dataset = MovedObjectDetrDataset(args.test_json, args.images_root, processor)

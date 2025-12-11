@@ -1,11 +1,10 @@
 import os
 import random
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 
 import torch
 from torch.utils.data import Dataset
-from PIL import Image
-import torchvision.transforms as T
+from PIL import Image, ImageChops
 
 from config import Config
 
@@ -14,18 +13,16 @@ def parse_matched_annotation_file(path: str) -> Tuple[List[List[float]], List[in
     """
     Reads a matched annotation file where every two rows correspond to one matched object:
     first row is the old box (ignored), second row is the new box (used as GT).
-    Returns boxes (x_min, y_min, x_max, y_max) and labels.
+    Returns boxes (x_min, y_min, x_max, y_max) and labels in pixel coords.
     """
     boxes: List[List[float]] = []
     labels: List[int] = []
     with open(path, "r") as f:
         lines = [ln.strip() for ln in f.readlines() if ln.strip()]
 
-    # Process pairs of lines
     for i in range(0, len(lines), 2):
         if i + 1 >= len(lines):
             break
-        # second line in the pair is the new box
         parts = lines[i + 1].split()
         if len(parts) < 6:
             continue
@@ -56,7 +53,6 @@ def build_samples(config: Config) -> List[Dict[str, str]]:
             img2_path = os.path.join(config.DATA_ROOT, img2_rel)
             ann2_name = os.path.basename(ann2_rel)
             folder_name = os.path.basename(os.path.dirname(img1_rel))
-            # Prefer new nested layout; fall back to flat files produced by the labeller.
             candidates = [
                 os.path.join(config.MATCHED_ANN_DIR, folder_name, ann2_name),
                 os.path.join(
@@ -78,6 +74,10 @@ def build_samples(config: Config) -> List[Dict[str, str]]:
 
 
 class MovedObjectDataset(Dataset):
+    """
+    Pixel-diff dataset using PIL + DetrImageProcessor downstream (no manual resizing).
+    """
+
     def __init__(self, config: Config, split: str = "train"):
         self.config = config
         samples = build_samples(config)
@@ -94,59 +94,85 @@ class MovedObjectDataset(Dataset):
         else:
             raise ValueError(f"Unknown split: {split}")
 
-        self.img_transform = T.Compose(
-            [
-                T.Resize((config.IMAGE_HEIGHT, config.IMAGE_WIDTH)),
-                T.ToTensor(),
-            ]
-        )
-
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple[Image.Image, Dict[str, Any]]:
         sample = self.samples[idx]
         img1 = Image.open(sample["img1_path"]).convert("RGB")
         img2 = Image.open(sample["img2_path"]).convert("RGB")
 
-        orig_w, orig_h = img2.size
-        img1_t = self.img_transform(img1)
-        img2_t = self.img_transform(img2)
-
-        diff = torch.abs(img2_t - img1_t)
+        # pixel-wise absolute diff in native resolution
+        diff = ImageChops.difference(img2, img1)
+        width, height = diff.size
 
         boxes, labels = parse_matched_annotation_file(sample["ann_path"])
-        if boxes:
-            # scale boxes from original size to resized size
-            scale_x = self.config.IMAGE_WIDTH / orig_w
-            scale_y = self.config.IMAGE_HEIGHT / orig_h
-            scaled_boxes = []
-            for x_min, y_min, x_max, y_max in boxes:
-                x_min_r = x_min * scale_x
-                x_max_r = x_max * scale_x
-                y_min_r = y_min * scale_y
-                y_max_r = y_max * scale_y
-                scaled_boxes.append([x_min_r, y_min_r, x_max_r, y_max_r])
-            boxes = scaled_boxes
 
-            # normalize to [0,1]
-            boxes = [
-                [
-                    x_min / self.config.IMAGE_WIDTH,
-                    y_min / self.config.IMAGE_HEIGHT,
-                    x_max / self.config.IMAGE_WIDTH,
-                    y_max / self.config.IMAGE_HEIGHT,
-                ]
-                for x_min, y_min, x_max, y_max in boxes
-            ]
+        # filter tiny/degenerate boxes
+        filtered_boxes = []
+        filtered_labels = []
+        for (x_min, y_min, x_max, y_max), cls in zip(boxes, labels):
+            if (x_max - x_min) <= 1 or (y_max - y_min) <= 1:
+                continue
+            filtered_boxes.append([x_min, y_min, x_max, y_max])
+            filtered_labels.append(cls)
 
-        boxes_tensor = torch.tensor(boxes, dtype=torch.float32) if boxes else torch.zeros((0, 4), dtype=torch.float32)
-        labels_tensor = torch.tensor(labels, dtype=torch.int64) if labels else torch.zeros((0,), dtype=torch.int64)
+        if not filtered_boxes:
+            # fallback dummy to avoid processor/DETR crash; will be filtered during collate
+            filtered_boxes = [[0.0, 0.0, 1.0, 1.0]]
+            filtered_labels = [0]
 
-        target = {"boxes": boxes_tensor, "class_labels": labels_tensor}
+        target = {
+            "boxes": torch.tensor(filtered_boxes, dtype=torch.float32),
+            "class_labels": torch.tensor(filtered_labels, dtype=torch.int64),
+            "size": (height, width),
+            "image_id": torch.tensor([idx]),
+            "meta": sample,
+        }
         return diff, target
 
 
-def collate_fn(batch):
-    images, targets = zip(*batch)
-    return list(images), list(targets)
+def collate_fn_with_processor(processor):
+    """
+    Builds a collate_fn that runs DetrImageProcessor on-the-fly and skips empty samples.
+    """
+
+    def _collate(batch):
+        images, targets = zip(*batch)
+        coco_targets = []
+        filtered_images = []
+        filtered_targets = []
+        for img, t in zip(images, targets):
+            ann_list = []
+            for box, label in zip(t["boxes"], t["class_labels"]):
+                x1, y1, x2, y2 = box.tolist()
+                w, h = x2 - x1, y2 - y1
+                if w <= 1 or h <= 1:
+                    continue
+                ann_list.append(
+                    {
+                        "image_id": int(t["image_id"].item()),
+                        "bbox": [x1, y1, w, h],
+                        "category_id": int(label.item()),
+                        "area": float(w * h),
+                        "iscrowd": 0,
+                    }
+                )
+
+            if not ann_list:
+                continue
+
+            filtered_images.append(img)
+            filtered_targets.append(t)
+            coco_targets.append({"image_id": int(t["image_id"].item()), "annotations": ann_list})
+
+        if not filtered_images:
+            return None
+
+        encoding = processor(images=filtered_images, annotations=coco_targets, return_tensors="pt")
+        # keep originals for eval/metrics
+        encoding["orig_targets"] = filtered_targets
+        encoding["orig_target_sizes"] = torch.tensor([t["size"] for t in filtered_targets], dtype=torch.long)
+        return encoding
+
+    return _collate

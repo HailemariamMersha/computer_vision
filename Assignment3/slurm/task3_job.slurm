@@ -45,9 +45,9 @@ singularity exec --bind /scratch --nv \
       --images_root ${DATA_ROOT} \
       --output_dir ${ANNOTATIONS_DIR}
 
-    echo '=== Step 3/4: Train DETR (Option 2 pixel diff) ==='
+    echo '=== Step 3/4: Train DETR (Option 2 pixel diff, processor-based) ==='
     python train.py --strategy all
-    baseline_ckpt=\$(ls -t ${CKPT_DIR}/detr_option2_all_epoch*.pth 2>/dev/null | head -n 1)
+    baseline_ckpt=\$(ls -t ${CKPT_DIR}/detr_option2_all_best.pth 2>/dev/null | head -n 1)
 
     echo '=== Step 4/4: Run ablations (loss comparison + eval) ==='
     python ablations.py \
@@ -56,7 +56,7 @@ singularity exec --bind /scratch --nv \
       --metrics_dir ${PROJECT_ROOT}/outputs/ablation_metrics \
       --eval_vis_dir ${PROJECT_ROOT}/outputs/ablation_eval_vis
 
-    echo '=== Final: Evaluate baseline checkpoint ==='
+    echo '=== Final: Evaluate baseline (best) checkpoint ==='
     latest_ckpt=\${baseline_ckpt}
     if [ -z \"\${latest_ckpt}\" ]; then
       echo 'No checkpoint found for evaluation.' >&2
