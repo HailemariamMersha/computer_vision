@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 """
@@ -104,7 +105,7 @@ def run_ablation(cfg, checkpoints_root: Path, args):
     }
 
 
-def eval_checkpoint(name: str, ckpt_path: Path, args) -> Path | None:
+def eval_checkpoint(name: str, ckpt_path: Path, args) -> Optional[Path]:
     metrics_path = Path(args.metrics_dir) / f"{name}.txt"
     vis_dir = Path(args.eval_vis_dir) / name
     metrics_path.parent.mkdir(parents=True, exist_ok=True)

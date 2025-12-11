@@ -122,7 +122,10 @@ def main():
         config.BATCH_SIZE = args.batch_size
     Config.create_dirs()
 
-    processor = DetrImageProcessor.from_pretrained(config.MODEL_NAME)
+    # Explicit size to avoid deprecated max_size warnings in newer transformers
+    processor = DetrImageProcessor.from_pretrained(
+        config.MODEL_NAME, size={"longest_edge": max(config.IMAGE_HEIGHT, config.IMAGE_WIDTH)}
+    )
     train_dataset = MovedObjectDataset(config, split="train")
     val_dataset = MovedObjectDataset(config, split="val")
 

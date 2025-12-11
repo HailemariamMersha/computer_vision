@@ -167,7 +167,9 @@ def main():
     cfg = Config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    processor = DetrImageProcessor.from_pretrained(args.model_name)
+    processor = DetrImageProcessor.from_pretrained(
+        args.model_name, size={"longest_edge": max(cfg.IMAGE_HEIGHT, cfg.IMAGE_WIDTH)}
+    )
     model = DetrForObjectDetection.from_pretrained(
         args.model_name,
         num_labels=cfg.NUM_CLASSES,
