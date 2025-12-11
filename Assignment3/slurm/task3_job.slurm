@@ -6,7 +6,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=%j_task3.out
 #SBATCH --error=%j_task3.err
-# End-to-end pipeline: labeller -> COCO JSON -> train -> eval (precision/recall)
+# End-to-end pipeline: labeller -> pixel-diff train -> ablations -> eval (precision/recall)
 
 SIF=/scratch/hbm9834/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif
 OVERLAY=/scratch/hbm9834/overlay-25GB-500K.ext3
@@ -24,6 +24,9 @@ singularity exec --bind /scratch --nv \
     source /ext3/env.sh
     # Avoid unset var errors from binutils hook during conda activate
     export ADDR2LINE=\$(which addr2line 2>/dev/null || true)
+    export AS=\$(which as 2>/dev/null || true)
+    export LD=\$(which ld 2>/dev/null || true)
+    export SIZE=\$(which size 2>/dev/null || true)
     export NM=\$(which nm 2>/dev/null || true)
     export OBJCOPY=\$(which objcopy 2>/dev/null || true)
     export OBJDUMP=\$(which objdump 2>/dev/null || true)
@@ -33,7 +36,10 @@ singularity exec --bind /scratch --nv \
     export AR=\$(which ar 2>/dev/null || true)
     export CXXFILT=\$(which c++filt 2>/dev/null || true)
     export ELFEDIT=\$(which elfedit 2>/dev/null || true)
+    export RANLIB=\$(which ranlib 2>/dev/null || true)
+    set +u
     conda activate computer_vision
+    set -u
     cd ${PROJECT_ROOT}
     echo '=== Step 1/3: Generate matched annotations ==='
     python data_ground_truth_labeller.py

@@ -1,13 +1,15 @@
 # Assignment 3 – Moved Object Detection (Option 2: Pixel Diff into DETR)
 
-This repo implements Option 2 as described in the handout: take the pixel-wise difference between two frames and fine-tune `facebook/detr-resnet-50` on the moved objects.
+This repo implements Option 2 as described in the handout: take the pixel-wise difference between two frames and fine-tune `facebook/detr-resnet-50` on the moved objects. The pipeline is processor-based (no COCO JSON needed for training/eval).
 
 ## Layout
 - `data_ground_truth_labeller.py` – provided matcher; generates `matched_annotations/` and `visual_matches/` (IoU filter happens here).
 - `config.py` – paths, hyperparameters, and utility for creating output dirs.
-- `dataset.py` – Option 2 dataset: loads both frames, computes abs diff, and uses only the second-line boxes as targets.
+- `dataset.py` – Option 2 dataset: loads both frames, computes abs diff, filters tiny boxes, and feeds `DetrImageProcessor` directly (no manual resizing/COCO).
 - `model.py` – DETR loader and fine-tuning strategy helper.
-- `train.py` – training loop using the pixel-diff dataset and standard DETR loss.
+- `train.py` – processor-based training loop on pixel diffs; saves best checkpoint only.
+- `ablations.py` – runs strategy/LR sweeps and evaluates them (precision/recall).
+- `eval_detr_moved.py` – processor-based eval on the dataset splits (no COCO JSON).
 - `slurm/task3_job.slurm` – example SLURM script (update paths before submitting).
 
 ## Quickstart (Option 2, local paths)
@@ -18,8 +20,11 @@ conda activate computer_vision  # env with torch/transformers/PIL/torchvision
 # 1) Generate matched annotations (IoU-based filtering handled inside)
 python data_ground_truth_labeller.py  # writes to ./matched_annotations by default
 
-# 2) Train on pixel-wise differences
+# 2) Train on pixel-wise differences (processor-based, best checkpoint only)
 python train.py --strategy all  # or backbone_only/transformer_only/head_only
+
+# 3) Optional: run ablations + eval
+python ablations.py
 ```
 
 ## HPC notes
