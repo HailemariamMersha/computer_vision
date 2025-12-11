@@ -63,4 +63,12 @@ singularity exec --bind /scratch --nv \
       --ckpt \${latest_ckpt} \
       --vis_dir ${VIS_OUT} \
       --metrics_out ${METRICS_OUT}
+
+    echo '=== Visualize predictions (frame2 GT vs preds) ==='
+    python visualize_predictions.py \
+      --ckpt \${latest_ckpt} \
+      --split val \
+      --num_samples 4 \
+      --score_thresh 0.5 \
+      --output_dir ${PROJECT_ROOT}/outputs/visualizations
   "

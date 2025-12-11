@@ -4,54 +4,45 @@ from typing import List, Tuple
 
 import cv2
 import torch
-from transformers.image_transforms import center_to_corners_format
+from transformers import DetrImageProcessor
 
 from config import Config
-from dataset import MovedObjectDataset, collate_fn
+from dataset import MovedObjectDataset
 from model import create_model
 
 
-def to_xyxy_norm(pred_boxes: torch.Tensor) -> torch.Tensor:
-    """Convert DETR cxcywh boxes (normalized) to xyxy (normalized)."""
-    return center_to_corners_format(pred_boxes)
-
-
-def denorm_boxes(boxes: torch.Tensor, width: int, height: int) -> List[Tuple[int, int, int, int]]:
-    """Scale normalized xyxy boxes to pixel coordinates."""
-    scaled = []
-    for x1, y1, x2, y2 in boxes:
-        scaled.append(
-            (
-                int(x1.item() * width),
-                int(y1.item() * height),
-                int(x2.item() * width),
-                int(y2.item() * height),
-            )
-        )
-    return scaled
-
-
-def draw_boxes(img, boxes, color, label_prefix=""):
-    for i, (x1, y1, x2, y2) in enumerate(boxes):
+def draw_boxes(
+    img,
+    boxes: List[Tuple[float, float, float, float]],
+    labels: List[int],
+    color,
+    prefix="",
+    scores: List[float] | None = None,
+):
+    for i, (box, lab) in enumerate(zip(boxes, labels)):
+        x1, y1, x2, y2 = map(int, box)
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-        if label_prefix:
-            cv2.putText(
-                img,
-                f"{label_prefix}{i}",
-                (x1, max(10, y1 - 5)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                color,
-                1,
-            )
+        txt = f"{prefix}{i}:{lab}"
+        if scores is not None:
+            txt = f"{txt} {scores[i]:.2f}"
+        cv2.putText(
+            img,
+            txt,
+            (x1, max(12, y1 - 4)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
     return img
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize DETR predictions side-by-side for frame pairs.")
-    parser.add_argument("--ckpt", type=str, default="outputs/checkpoints/detr_option2_all_epoch19.pth")
+    parser = argparse.ArgumentParser(description="Visualize DETR predictions on frame pairs (processor-based).")
+    parser.add_argument("--ckpt", type=str, default="outputs/checkpoints/detr_option2_all_best.pth")
     parser.add_argument("--split", type=str, default="val", choices=["train", "val"])
-    parser.add_argument("--num_samples", type=int, default=5)
+    parser.add_argument("--num_samples", type=int, default=4)
     parser.add_argument("--score_thresh", type=float, default=0.5)
     parser.add_argument("--output_dir", type=str, default="outputs/visualizations")
     args = parser.parse_args()
@@ -59,55 +50,56 @@ def main():
     cfg = Config()
     device = torch.device(cfg.DEVICE)
 
-    # Dataset with access to original image paths
     dataset = MovedObjectDataset(cfg, split=args.split)
     if len(dataset) == 0:
         print("Dataset is empty; ensure matched annotations exist.")
         return
 
-    # Load model + checkpoint
+    processor = DetrImageProcessor.from_pretrained(
+        cfg.MODEL_NAME, size={"longest_edge": max(cfg.IMAGE_HEIGHT, cfg.IMAGE_WIDTH)}
+    )
     model = create_model(cfg).to(device)
     state = torch.load(args.ckpt, map_location=device)
-    model.load_state_dict(state)
+    state_dict = state["model"] if isinstance(state, dict) and "model" in state else state
+    model.load_state_dict(state_dict)
     model.eval()
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Pick first N samples
+    # Use first N samples
     indices = list(range(min(args.num_samples, len(dataset))))
     for idx in indices:
         diff, target = dataset[idx]
-        sample = dataset.samples[idx]
+        meta = target.get("meta", {})
 
-        # Load original frames and resize for side-by-side display
-        img1 = cv2.imread(sample["img1_path"])
-        img2 = cv2.imread(sample["img2_path"])
-        img1 = cv2.resize(img1, (cfg.IMAGE_WIDTH, cfg.IMAGE_HEIGHT))
-        img2 = cv2.resize(img2, (cfg.IMAGE_WIDTH, cfg.IMAGE_HEIGHT))
+        img2_path = meta.get("img2_path")
+        if not img2_path:
+            continue
+        img2 = cv2.imread(img2_path)
+        if img2 is None:
+            continue
 
-        # Predict
         with torch.no_grad():
-            outputs = model(pixel_values=torch.stack([diff]).to(device))
-        pred_boxes_xyxy_norm = to_xyxy_norm(outputs.pred_boxes[0])  # stays on device
-        pred_scores = outputs.logits[0].softmax(-1)[:, :-1].max(-1)
+            enc = processor(images=[diff], return_tensors="pt")
+            outputs = model(pixel_values=enc["pixel_values"].to(device))
+            processed = processor.post_process_object_detection(
+                outputs, target_sizes=[target["size"]], threshold=args.score_thresh
+            )
+        preds = processed[0]
+        pred_boxes = preds["boxes"].tolist()
+        pred_scores = preds["scores"].tolist()
+        pred_labels = preds["labels"].tolist()
 
-        # Filter by score threshold
-        keep = pred_scores.values >= args.score_thresh
-        pred_boxes_xyxy_norm = pred_boxes_xyxy_norm[keep].cpu()
+        gt_boxes = target["boxes"].tolist()
+        gt_labels = target["class_labels"].tolist()
 
-        # Convert boxes to pixel coords
-        pred_boxes_px = denorm_boxes(pred_boxes_xyxy_norm, cfg.IMAGE_WIDTH, cfg.IMAGE_HEIGHT)
+        # Two views of frame2: left with GT (green), right with predictions (red + labels/scores)
+        gt_vis = draw_boxes(img2.copy(), gt_boxes, gt_labels, (0, 255, 0), prefix="GT")
+        pred_vis = draw_boxes(img2.copy(), pred_boxes, pred_labels, (0, 0, 255), prefix="P", scores=pred_scores)
 
-        # Ground truth boxes (already normalized xyxy in target)
-        gt_boxes_px = denorm_boxes(target["boxes"], cfg.IMAGE_WIDTH, cfg.IMAGE_HEIGHT)
-
-        # Draw GT on left (green), predictions on right (red)
-        img1_vis = draw_boxes(img1.copy(), gt_boxes_px, (0, 255, 0), label_prefix="GT")
-        img2_vis = draw_boxes(img2.copy(), pred_boxes_px, (0, 0, 255), label_prefix="P")
-
-        combined = cv2.hconcat([img1_vis, img2_vis])
-        out_path = out_dir / f"pair_{args.split}_{idx:03d}.png"
+        combined = cv2.hconcat([gt_vis, pred_vis])
+        out_path = out_dir / f"frame2_gt_pred_{args.split}_{idx:03d}.png"
         cv2.imwrite(str(out_path), combined)
         print(f"Saved {out_path}")
 
