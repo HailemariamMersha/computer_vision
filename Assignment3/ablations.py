@@ -15,11 +15,11 @@ and (optionally) evaluates each checkpoint on the processor-based val split (no 
 
 
 ABLATIONS = [
-    {"name": "all_lr1e-5", "strategy": "all", "lr": 1e-5, "epochs": 5},
-    {"name": "all_lr5e-5", "strategy": "all", "lr": 5e-5, "epochs": 5},
-    {"name": "head_lr1e-5", "strategy": "head_only", "lr": 1e-5, "epochs": 5},
-    {"name": "head_lr5e-5", "strategy": "head_only", "lr": 5e-5, "epochs": 5},
-    {"name": "backbone_lr1e-5", "strategy": "backbone_only", "lr": 1e-5, "epochs": 5},
+    {"name": "all_lr1e-5", "strategy": "all", "lr": 1e-5, "epochs": 50},
+    {"name": "all_lr5e-5", "strategy": "all", "lr": 5e-5, "epochs": 50},
+    {"name": "head_lr1e-5", "strategy": "head_only", "lr": 1e-5, "epochs": 50},
+    {"name": "head_lr5e-5", "strategy": "head_only", "lr": 5e-5, "epochs": 50},
+    {"name": "backbone_lr1e-5", "strategy": "backbone_only", "lr": 1e-5, "epochs": 50},
 ]
 
 
@@ -153,8 +153,8 @@ def parse_args():
         default="outputs/ablation_eval_vis",
         help="Where to write per-ablation eval visualizations.",
     )
-    parser.add_argument("--score_thresh", type=float, default=0.5)
-    parser.add_argument("--iou_thresh", type=float, default=0.5)
+    parser.add_argument("--score_thresh", type=float, default=0.3)
+    parser.add_argument("--iou_thresh", type=float, default=0.4)
     parser.add_argument("--skip_eval", action="store_true", help="Run training only, skip eval.")
     return parser.parse_args()
 

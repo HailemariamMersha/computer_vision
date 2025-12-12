@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import cv2
 import torch
@@ -11,6 +11,15 @@ from transformers import DetrForObjectDetection, DetrImageProcessor
 from config import Config
 from dataset import MovedObjectDataset, collate_fn_with_processor
 
+# Class labels for rendering
+ID2LABEL: Dict[int, str] = {
+    0: "unknown",
+    1: "person",
+    2: "car",
+    3: "other_vehicle",
+    4: "other_object",
+    5: "bike",
+}
 
 def compute_pr(outputs, targets, processor, device, score_thresh=0.5, iou_thresh=0.5):
     target_sizes = torch.tensor([t["size"] for t in targets], device=device)
@@ -70,7 +79,22 @@ def parse_match_file(path: Path) -> Tuple[List[List[float]], List[List[float]]]:
     return init_boxes, final_boxes
 
 
-def draw_four_panel(frame1_path: Path, frame2_path: Path, gt_init, gt_final, pred_boxes, pred_scores, out_path: Path):
+def draw_box_with_label(img, box, color, text):
+    x1, y1, x2, y2 = map(int, box)
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+    cv2.putText(
+        img,
+        text,
+        (x1, int(max(12, y1 - 4))),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        color,
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def draw_four_panel(frame1_path: Path, frame2_path: Path, gt_init, gt_final, pred_boxes, pred_scores, pred_labels, out_path: Path):
     img1_gt = cv2.imread(str(frame1_path))
     img2_gt = cv2.imread(str(frame2_path))
     img1_pred = cv2.imread(str(frame1_path))
@@ -80,30 +104,32 @@ def draw_four_panel(frame1_path: Path, frame2_path: Path, gt_init, gt_final, pre
 
     # GT: initial (green) on initial frame, final (green) on final frame
     for i, (x1, y1, x2, y2) in enumerate(gt_init):
-        cv2.rectangle(img1_gt, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-        cv2.putText(img1_gt, f"GT{i}", (int(x1), int(max(12, y1 - 4))), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+        draw_box_with_label(img1_gt, (x1, y1, x2, y2), (0, 255, 0), f"GT{i}")
     for i, (x1, y1, x2, y2) in enumerate(gt_final):
-        cv2.rectangle(img2_gt, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-        cv2.putText(img2_gt, f"GT{i}", (int(x1), int(max(12, y1 - 4))), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+        draw_box_with_label(img2_gt, (x1, y1, x2, y2), (0, 255, 0), f"GT{i}")
 
     # Predictions: draw on both initial and final (red)
-    for i, (box, score) in enumerate(zip(pred_boxes, pred_scores)):
+    for i, (box, score, lab) in enumerate(zip(pred_boxes, pred_scores, pred_labels)):
+        cls_name = ID2LABEL.get(int(lab), str(int(lab)))
         x1, y1, x2, y2 = box
-        for img in (img1_pred, img2_pred):
-            cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-            cv2.putText(
-                img,
-                f"P{i}:{score:.2f}",
-                (int(x1), int(max(12, y1 - 4))),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 0, 255),
-                1,
-                cv2.LINE_AA,
-            )
+        label_text = f"P{i}:{score:.2f} {cls_name}"
+        draw_box_with_label(img1_pred, (x1, y1, x2, y2), (0, 0, 255), label_text)
+        draw_box_with_label(img2_pred, (x1, y1, x2, y2), (0, 0, 255), label_text)
 
-    top = cv2.hconcat([img1_gt, img2_gt])
-    bot = cv2.hconcat([img1_pred, img2_pred])
+    # Add titles and borders
+    def add_title(img, title):
+        pad = 40
+        canvas = cv2.copyMakeBorder(img, pad, 0, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+        cv2.putText(canvas, title, (10, pad - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+        return canvas
+
+    img1_gt_t = add_title(img1_gt, "GT: Initial")
+    img2_gt_t = add_title(img2_gt, "GT: Final")
+    img1_pred_t = add_title(img1_pred, "Pred: Initial")
+    img2_pred_t = add_title(img2_pred, "Pred: Final")
+
+    top = cv2.hconcat([img1_gt_t, img2_gt_t])
+    bot = cv2.hconcat([img1_pred_t, img2_pred_t])
     vis = cv2.vconcat([top, bot])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), vis)
@@ -126,8 +152,8 @@ def parse_args():
     )
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--score_thresh", type=float, default=0.5)
-    parser.add_argument("--iou_thresh", type=float, default=0.5)
+    parser.add_argument("--score_thresh", type=float, default=0.3)
+    parser.add_argument("--iou_thresh", type=float, default=0.4)
     parser.add_argument("--vis_dir", type=str, default=str(script_dir / "results/vis"))
     parser.add_argument("--max_vis", type=int, default=30)
     parser.add_argument(
@@ -200,6 +226,7 @@ def main():
             gt_boxes = gt["boxes"].tolist()
             pred_boxes = res["boxes"].tolist()
             pred_scores = res["scores"].tolist()
+            pred_labels = res["labels"].tolist()
 
             meta = gt.get("meta", {})
             frame1_path = Path(meta.get("img1_path", ""))
@@ -215,6 +242,7 @@ def main():
                     gt_final_boxes,
                     pred_boxes,
                     pred_scores,
+                    pred_labels,
                     vis_path,
                 )
                 vis_count += 1

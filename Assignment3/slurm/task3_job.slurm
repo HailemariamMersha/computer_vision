@@ -45,7 +45,7 @@ singularity exec --bind /scratch --nv \
     # python data_ground_truth_labeller.py
 
     echo '=== Step 2/3: Train DETR (Option 2 pixel diff, processor-based) ==='
-    python train.py --strategy all --epochs 40
+    python train.py --strategy all --epochs 50
     baseline_ckpt=\$(ls -t ${CKPT_DIR}/detr_option2_all_best.pth 2>/dev/null | head -n 1)
 
     echo '=== Step 3/3: Run ablations (loss/prec/rec) + final eval ==='

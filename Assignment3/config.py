@@ -14,7 +14,7 @@ class Config:
 
     # Training hyperparameters
     BATCH_SIZE = 2
-    NUM_EPOCHS = 40
+    NUM_EPOCHS = 50
     LEARNING_RATE = 1e-5
     WEIGHT_DECAY = 1e-4
     WARMUP_STEPS = 0
