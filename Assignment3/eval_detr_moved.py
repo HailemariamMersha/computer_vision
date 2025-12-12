@@ -108,7 +108,7 @@ def draw_four_panel(frame1_path: Path, frame2_path: Path, gt_init, gt_final, pre
     for i, (x1, y1, x2, y2) in enumerate(gt_final):
         draw_box_with_label(img2_gt, (x1, y1, x2, y2), (0, 255, 0), f"GT{i}")
 
-    # Predictions: draw on both initial and final (red)
+    # Predictions: draw on both initial and final (red) so we can compare to GT panels
     for i, (box, score, lab) in enumerate(zip(pred_boxes, pred_scores, pred_labels)):
         cls_name = ID2LABEL.get(int(lab), str(int(lab)))
         x1, y1, x2, y2 = box
@@ -152,8 +152,8 @@ def parse_args():
     )
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--score_thresh", type=float, default=0.3)
-    parser.add_argument("--iou_thresh", type=float, default=0.4)
+    parser.add_argument("--score_thresh", type=float, default=0.5)
+    parser.add_argument("--iou_thresh", type=float, default=0.5)
     parser.add_argument("--vis_dir", type=str, default=str(script_dir / "results/vis"))
     parser.add_argument("--max_vis", type=int, default=30)
     parser.add_argument(
