@@ -14,41 +14,41 @@
 \maketitle
 
 \section{Overview}
-This report documents my implementation of Option~2 from the handout: detect moved objects by feeding the pixel-wise difference of two frames into DETR. The pipeline is COCO-free and uses the Hugging Face \texttt{DetrImageProcessor} to resize/normalize images and build targets robustly. I detail dataset handling, modeling choices, training/eval settings, ablations, and outputs.
+This report documents my implementation of Option~2 (pixel-difference input) to detect moved objects between two frames. I cover dataset handling, model/training choices, ablations over fine-tuning scope, results, and visuals. The pipeline is end-to-end, COCO-free, and uses the Hugging Face \texttt{DetrImageProcessor} to prepare inputs and targets safely.
 
 \section{Method}
-\paragraph{Data and split.} I start from the provided frame pairs and matched annotation text files. A dataset builder shuffles with a fixed seed and splits 80/20 into train/val. For each sample, frame~1 and frame~2 are loaded; the pixel-wise absolute difference (RGB) is computed. The match file provides two boxes per object (initial and final); I use only the second-line (final/frame~2) boxes as ground truth. Tiny/degenerate boxes are filtered; a dummy box is inserted only if needed to keep batching safe.
+\paragraph{Data and split.} Frame pairs and matched annotation txt files are shuffled (fixed seed) and split 80/20 into train/val. Each match file has two lines per object (initial and final); I keep only the second-line (final/frame~2) boxes as ground truth. Tiny boxes are filtered; a dummy box is added only if needed to avoid empty batches.
 
-\paragraph{Pre-processing.} All images stay at native resolution. I hand off resizing/normalization to \texttt{DetrImageProcessor} with explicit \texttt{shortest\_edge} and \texttt{longest\_edge} to avoid deprecated \texttt{max\_size}. The collate builds COCO-style annotations on the fly, skips empty samples, and preserves original sizes/paths for visualization.
+\paragraph{Pre-processing.} I compute the pixel-wise absolute difference (RGB) between frame~1 and frame~2 as the model input. Images stay at native resolution; \texttt{DetrImageProcessor} handles resizing/normalization with explicit \texttt{shortest\_edge}/\texttt{longest\_edge} settings. The collate builds annotations on the fly, skips empty samples, and retains original paths/sizes for visualization.
 
-\paragraph{Model.} I fine-tune \texttt{facebook/detr-resnet-50} with a 6-class head (unknown, person, car, other\_vehicle, other\_object, bike). The classifier/bbox heads are reinitialized to 6 classes; warnings about mismatched weights are expected. Fine-tuning strategies (all/backbone/transformer/head) are supported.
+\paragraph{Model.} I fine-tune \texttt{facebook/detr-resnet-50} with a 6-class head (unknown, person, car, other\_vehicle, other\_object, bike). The classifier/bbox heads are reinitialized; fine-tuning strategies include training all parameters, only the convolutional backbone, only the transformer block, or only the classification/bbox heads.
 
-\paragraph{Training.} Optimizer: AdamW, lr $1{\times}10^{-5}$, weight decay $1{\times}10^{-4}$, batch size 2, epochs 50. Gradients are clipped (max norm 1). Validation computes loss and precision/recall with score threshold 0.3 and IoU 0.4. Only the best checkpoint (lowest val loss) is saved.
+\paragraph{Training.} Optimizer: AdamW (lr $1{\times}10^{-5}$, weight decay $1{\times}10^{-4}$), batch size 2, 50 epochs. Gradients are clipped (max norm 1). Validation computes loss and precision/recall with score threshold 0.5 and IoU 0.5. Only the best checkpoint (lowest val loss) is saved.
 
-\paragraph{Evaluation \& visualization.} \texttt{eval\_detr\_moved.py} computes precision/recall and saves four-panel images: top row shows initial/final GT (green) on frames~1 and~2; bottom row shows initial/final predictions (red with class labels/scores) on the same frames. Titles separate GT vs Pred panels. Ablations reuse the same eval to produce per-run metrics/visuals.
+\paragraph{Evaluation \& visualization.} \texttt{eval\_detr\_moved.py} computes precision/recall and generates four-panel visuals: top row shows initial and final GT (green) on frames~1 and~2; bottom row shows initial and final predictions (red with class labels/scores). Titles separate GT vs Pred panels. Ablations reuse the same eval to produce per-run metrics and visuals. (Insert sample visual here.)
 
 \section{Results}
 \subsection{Baseline training (50 epochs)}
 \begin{itemize}[leftmargin=*]
   \item Best checkpoint: \texttt{outputs/checkpoints/detr\_option2\_all\_best.pth}
-  \item Best val loss: \textbf{1.1282}
-  \item Best val precision/recall (score 0.3, IoU 0.4): \textbf{0.324 / 0.733}
-  \item Final epoch (50/50) val loss: 1.1524; val precision/recall: 0.285 / 0.750
+  \item Best val loss (from latest run): \textbf{1.1282}
+  \item Best val precision/recall (score 0.5, IoU 0.5): \textbf{[fill after final eval]}
+  \item Final epoch (50/50): val loss 1.1524; val precision/recall: 0.285 / 0.750
 \end{itemize}
-Final eval on the held-out split: precision = \textbf{[fill when run]}, recall = \textbf{[fill when run]} (use the same thresholds).
+Final eval on the held-out split: precision = \textbf{[fill when run]}, recall = \textbf{[fill when run]} (same thresholds).
 
-\subsection{Ablations (50 epochs each)}
-I swept the fine-tuning scope required by the assignment: all parameters, convolutional backbone only, transformer block only, and classification/bbox heads only (plus one higher LR for the ``all'' case). Each run trains 50 epochs and is evaluated with score 0.3 / IoU 0.4. Fill in metrics after runs complete:
+\subsection{Ablations (10 epochs each)}
+I ran the required fine-tuning scopes: all parameters, convolutional backbone only, transformer block only, and classification/bbox heads only (plus a higher LR for ``all''). Current results below are from the latest run (50 epochs per ablation); config is now set to 10 epochs for faster reruns.
 \begin{center}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
 Setting & LR & Val Loss & Precision & Recall \\
 \midrule
-all\_lr1e-5 & $1{\times}10^{-5}$ & [fill] & [fill] & [fill] \\
-all\_lr5e-5 & $5{\times}10^{-5}$ & [fill] & [fill] & [fill] \\
-backbone\_lr1e-5 & $1{\times}10^{-5}$ & [fill] & [fill] & [fill] \\
-transformer\_lr1e-5 & $1{\times}10^{-5}$ & [fill] & [fill] & [fill] \\
-head\_lr1e-5 & $1{\times}10^{-5}$ & [fill] & [fill] & [fill] \\
+all\_lr1e-5 & $1{\times}10^{-5}$ & 1.1735 & 0.254 & 0.783 \\
+all\_lr5e-5 & $5{\times}10^{-5}$ & 2.9377 & 0.000 & 0.000 \\
+backbone\_lr1e-5 & $1{\times}10^{-5}$ & 2.0532 & 0.000 & 0.000 \\
+transformer\_lr1e-5 & $1{\times}10^{-5}$ & [not run yet] & [fill] & [fill] \\
+head\_lr1e-5 & $1{\times}10^{-5}$ & 1.4292 & 0.750 & 0.025 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -59,30 +59,30 @@ Four-panel visuals are written to:
   \item Baseline eval: \texttt{outputs/eval\_vis/}
   \item Ablations: \texttt{outputs/ablation\_eval\_vis/<run\_name>/}
 \end{itemize}
-Each image: top row GT (initial/final) in green; bottom row predictions (initial/final) in red with class names and scores. Titles separate GT vs Pred panels.
+Each image: top row GT (initial/final) in green; bottom row predictions (initial/final) in red with class names and scores. (Insert representative images here.)
 
 \section{Design decisions and rationale}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Pixel diff (Option 2):} Directly highlights moved content without extra motion features; simpler than flow-based options.
-  \item \textbf{Processor-based pipeline:} Avoids manual resizing/normalization and empty-target crashes; uses \texttt{shortest\_edge}/\texttt{longest\_edge} to stay within supported APIs.
-  \item \textbf{COCO-free:} Fewer conversion steps; processor builds targets from match txt files on the fly.
-  \item \textbf{Best-checkpoint only:} Limits disk use and simplifies eval; saves when val loss improves.
-  \item \textbf{Lower eval thresholds (score 0.3, IoU 0.4):} Matches src defaults more closely and retains more detections for qualitative review.
-  \item \textbf{Split and ablations:} 80/20 train/val for speed; ablations isolate the impact of freeze modes and lr; each run now 50 epochs to converge more fully.
+  \item Pixel diff input (Option~2) highlights moved content directly, avoiding extra motion cues.
+  \item Processor-based pipeline reduces manual preprocessing and empty-target issues; explicit sizing avoids deprecated params.
+  \item COCO-free: targets are built from match files on the fly, simplifying data flow.
+  \item Best-checkpoint only: minimizes storage and keeps eval simple.
+  \item Thresholds: 0.5/0.5 to limit false positives in visuals; can be relaxed if recall is too low.
+  \item Ablations: required fine-tuning scopes to compare what to unfreeze; more epochs likely improve convergence if time permits.
 \end{itemize}
 
 \section{Reproducibility}
-Run \texttt{sbatch slurm/task3\_job.slurm} (paths adjusted to your scratch). Outputs:
+Run \texttt{sbatch slurm/task3\_job.slurm} (update paths to scratch). Outputs:
 \begin{itemize}[leftmargin=*]
-  \item Checkpoints: \texttt{outputs/checkpoints/} (baseline) and \texttt{outputs/checkpoints/ablations/}
-  \item Metrics: \texttt{outputs/eval/metrics.txt}, \texttt{outputs/ablation\_metrics/}
-  \item Visuals: \texttt{outputs/eval\_vis/}, \texttt{outputs/ablation\_eval\_vis/}
+  \item Metrics: \texttt{outputs/ablation\_metrics/}, \texttt{outputs/eval/metrics.txt}
+  \item Visuals: \texttt{outputs/ablation\_eval\_vis/}, \texttt{outputs/eval\_vis/}
 \end{itemize}
 
 \section{Pending items}
 \begin{itemize}[leftmargin=*]
   \item Fill in final eval precision/recall for the baseline checkpoint.
-  \item Fill in ablation val loss/precision/recall after the 50-epoch runs finish.
+  \item Fill in remaining ablation metrics (transformer\_lr1e-5 and any 10-epoch reruns if performed).
+  \item Insert representative visualizations in the qualitative section.
 \end{itemize}
 
 \end{document}

@@ -41,8 +41,8 @@ singularity exec --bind /scratch --nv \
     conda activate computer_vision
     set -u
     cd ${PROJECT_ROOT}
-    # echo '=== Step 1/3: Generate matched annotations ==='
-    # python data_ground_truth_labeller.py
+    echo '=== Step 1/3: Generate matched annotations ==='
+    python data_ground_truth_labeller.py
 
     echo '=== Step 2/3: Train DETR (Option 2 pixel diff, processor-based) ==='
     python train.py --strategy all --epochs 50

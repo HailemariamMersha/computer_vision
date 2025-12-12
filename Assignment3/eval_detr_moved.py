@@ -152,7 +152,7 @@ def parse_args():
     )
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--score_thresh", type=float, default=0.5)
+    parser.add_argument("--score_thresh", type=float, default=0.3)
     parser.add_argument("--iou_thresh", type=float, default=0.5)
     parser.add_argument("--vis_dir", type=str, default=str(script_dir / "results/vis"))
     parser.add_argument("--max_vis", type=int, default=30)

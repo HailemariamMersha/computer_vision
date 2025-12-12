@@ -153,7 +153,7 @@ def parse_args():
         default="outputs/ablation_eval_vis",
         help="Where to write per-ablation eval visualizations.",
     )
-    parser.add_argument("--score_thresh", type=float, default=0.5)
+    parser.add_argument("--score_thresh", type=float, default=0.3)
     parser.add_argument("--iou_thresh", type=float, default=0.5)
     parser.add_argument("--skip_eval", action="store_true", help="Run training only, skip eval.")
     return parser.parse_args()
