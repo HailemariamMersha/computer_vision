@@ -5,12 +5,13 @@ import random
 import torch
 import torchvision.transforms as transforms
 import torchvision.models as models
+from torchvision.models import ResNet18_Weights
 from scipy.optimize import linear_sum_assignment
 from sklearn.metrics.pairwise import cosine_distances
 
 # Load ResNet model for feature extraction
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-resnet = models.resnet18(pretrained=True)
+resnet = models.resnet18(weights=ResNet18_Weights.DEFAULT)
 resnet = torch.nn.Sequential(*list(resnet.children())[:-1])  # Remove FC layer
 resnet.eval().to(device)
 
