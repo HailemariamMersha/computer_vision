@@ -12,7 +12,7 @@ from dataset import MovedObjectDataset, collate_fn_with_processor
 from model import create_model, set_finetune_strategy
 
 
-def compute_pr(outputs, targets, processor, device, score_thresh=0.3, iou_thresh=0.5):
+def compute_pr(outputs, targets, processor, device, score_thresh=0.2, iou_thresh=0.5):
     target_sizes = torch.tensor([t["size"] for t in targets], device=device)
     processed = processor.post_process_object_detection(outputs, target_sizes=target_sizes, threshold=score_thresh)
 
