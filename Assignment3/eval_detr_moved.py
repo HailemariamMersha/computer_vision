@@ -51,82 +51,60 @@ def compute_pr(outputs, targets, processor, device, score_thresh=0.5, iou_thresh
     return precision, recall, tp, fp, fn, all_matches
 
 
-def _color_from_index(idx: int) -> Tuple[int, int, int]:
-    r = 60 + (37 * idx) % 190
-    g = 60 + (91 * idx) % 190
-    b = 60 + (53 * idx) % 190
-    return int(b), int(g), int(r)
+def parse_match_file(path: Path) -> Tuple[List[List[float]], List[List[float]]]:
+    init_boxes: List[List[float]] = []
+    final_boxes: List[List[float]] = []
+    with open(path, "r") as f:
+        lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+    for i in range(0, len(lines), 2):
+        if i + 1 >= len(lines):
+            break
+        init_parts = lines[i].split()
+        final_parts = lines[i + 1].split()
+        if len(init_parts) < 6 or len(final_parts) < 6:
+            continue
+        _, x0, y0, w0, h0, _ = init_parts[:6]
+        _, x1, y1, w1, h1, _ = final_parts[:6]
+        init_boxes.append([float(x0), float(y0), float(x0) + float(w0), float(y0) + float(h0)])
+        final_boxes.append([float(x1), float(y1), float(x1) + float(w1), float(y1) + float(h1)])
+    return init_boxes, final_boxes
 
 
-def draw_side_by_side(
-    frame1_path: Path,
-    frame2_path: Path,
-    gt_boxes,
-    pred_boxes,
-    pred_scores,
-    pred_labels,
-    matches: List[Tuple[int, int]],
-    out_path: Path,
-    score_thresh=0.7,
-):
-    img1 = cv2.imread(str(frame1_path))
-    img2 = cv2.imread(str(frame2_path))
-    if img1 is None or img2 is None:
+def draw_four_panel(frame1_path: Path, frame2_path: Path, gt_init, gt_final, pred_boxes, pred_scores, out_path: Path):
+    img1_gt = cv2.imread(str(frame1_path))
+    img2_gt = cv2.imread(str(frame2_path))
+    img1_pred = cv2.imread(str(frame1_path))
+    img2_pred = cv2.imread(str(frame2_path))
+    if any(x is None for x in [img1_gt, img2_gt, img1_pred, img2_pred]):
         return
 
-    matched_pred_to_gt = {pred_idx: gt_idx for gt_idx, pred_idx in matches}
-    matched_gt = {gt_idx for gt_idx, _ in matches}
+    # GT: initial (green) on initial frame, final (green) on final frame
+    for i, (x1, y1, x2, y2) in enumerate(gt_init):
+        cv2.rectangle(img1_gt, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+        cv2.putText(img1_gt, f"GT{i}", (int(x1), int(max(12, y1 - 4))), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+    for i, (x1, y1, x2, y2) in enumerate(gt_final):
+        cv2.rectangle(img2_gt, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+        cv2.putText(img2_gt, f"GT{i}", (int(x1), int(max(12, y1 - 4))), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
-    for gt_idx, (x, y, w, h) in enumerate(gt_boxes):
-        color = _color_from_index(gt_idx)
-        thickness = 2 if gt_idx in matched_gt else 1
-        cv2.rectangle(img2, (int(x), int(y)), (int(x + w), int(y + h)), color, thickness)
-        cv2.putText(
-            img2,
-            f"GT {gt_idx}",
-            (int(x), int(y) - 5),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            1,
-        )
+    # Predictions: draw on both initial and final (red)
+    for i, (box, score) in enumerate(zip(pred_boxes, pred_scores)):
+        x1, y1, x2, y2 = box
+        for img in (img1_pred, img2_pred):
+            cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+            cv2.putText(
+                img,
+                f"P{i}:{score:.2f}",
+                (int(x1), int(max(12, y1 - 4))),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 255),
+                1,
+                cv2.LINE_AA,
+            )
 
-    for pred_idx, ((x, y, w, h), score) in enumerate(zip(pred_boxes, pred_scores)):
-        if score < score_thresh:
-            continue
-        if pred_idx in matched_pred_to_gt:
-            color = _color_from_index(matched_pred_to_gt[pred_idx])
-            label = f"P{pred_idx} {score:.2f}"
-        else:
-            color = (0, 0, 255)
-            label = f"P{pred_idx}* {score:.2f}"
-        cv2.rectangle(img2, (int(x), int(y)), (int(x + w), int(y + h)), color, 2)
-        cv2.putText(
-            img2,
-            label,
-            (int(x), int(y) + 15),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            1,
-        )
-
-    if img1.shape[0] != img2.shape[0]:
-        scale = img2.shape[0] / img1.shape[0]
-        img1 = cv2.resize(img1, (int(img1.shape[1] * scale), img2.shape[0]))
-    vis = cv2.hconcat([img1, img2])
-
-    cv2.putText(vis, "Initial", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-    cv2.putText(
-        vis,
-        "Final (GT+Pred)",
-        (img1.shape[1] + 20, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
-        (255, 255, 255),
-        2,
-    )
-
+    top = cv2.hconcat([img1_gt, img2_gt])
+    bot = cv2.hconcat([img1_pred, img2_pred])
+    vis = cv2.vconcat([top, bot])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), vis)
 
@@ -168,7 +146,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     processor = DetrImageProcessor.from_pretrained(
-        args.model_name, size={"longest_edge": max(cfg.IMAGE_HEIGHT, cfg.IMAGE_WIDTH)}
+        args.model_name,
+        size={
+            "shortest_edge": min(cfg.IMAGE_HEIGHT, cfg.IMAGE_WIDTH),
+            "longest_edge": max(cfg.IMAGE_HEIGHT, cfg.IMAGE_WIDTH),
+        },
     )
     model = DetrForObjectDetection.from_pretrained(
         args.model_name,
@@ -212,27 +194,28 @@ def main():
         )
 
         for i, res in enumerate(processed):
+            if vis_count >= args.max_vis:
+                break
             gt = labels[i]
             gt_boxes = gt["boxes"].tolist()
             pred_boxes = res["boxes"].tolist()
             pred_scores = res["scores"].tolist()
-            pred_labels = res["labels"].tolist()
 
-            if vis_count < args.max_vis:
-                meta = gt.get("meta", {})
-                img1_path = Path(meta.get("img1_path", ""))
-                img2_path = Path(meta.get("img2_path", ""))
+            meta = gt.get("meta", {})
+            frame1_path = Path(meta.get("img1_path", ""))
+            frame2_path = Path(meta.get("img2_path", ""))
+            ann_path = Path(meta.get("ann_path", ""))
+            if frame1_path and frame2_path and ann_path.exists():
+                gt_init_boxes, gt_final_boxes = parse_match_file(ann_path)
                 vis_path = Path(args.vis_dir) / f"vis_{vis_count:03d}.png"
-                draw_side_by_side(
-                    img1_path,
-                    img2_path,
-                    gt_boxes,
+                draw_four_panel(
+                    frame1_path,
+                    frame2_path,
+                    gt_init_boxes,
+                    gt_final_boxes,
                     pred_boxes,
                     pred_scores,
-                    pred_labels,
-                    matches[i] if i < len(matches) else [],
                     vis_path,
-                    score_thresh=args.score_thresh,
                 )
                 vis_count += 1
 

@@ -9,7 +9,7 @@ This repo implements Option 2 as described in the handout: take the pixel-wise d
 - `model.py` – DETR loader and fine-tuning strategy helper.
 - `train.py` – processor-based training loop on pixel diffs; saves best checkpoint only.
 - `ablations.py` – runs strategy/LR sweeps and evaluates them (precision/recall).
-- `eval_detr_moved.py` – processor-based eval on the dataset splits (no COCO JSON).
+- `eval_detr_moved.py` – processor-based eval + four-panel visuals (initial/final GT on top, initial/final preds on bottom).
 - `slurm/task3_job.slurm` – example SLURM script (update paths before submitting).
 
 ## Quickstart (Option 2, local paths)

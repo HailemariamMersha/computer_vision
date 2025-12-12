@@ -124,7 +124,11 @@ def main():
 
     # Explicit size to avoid deprecated max_size warnings in newer transformers
     processor = DetrImageProcessor.from_pretrained(
-        config.MODEL_NAME, size={"longest_edge": max(config.IMAGE_HEIGHT, config.IMAGE_WIDTH)}
+        config.MODEL_NAME,
+        size={
+            "shortest_edge": min(config.IMAGE_HEIGHT, config.IMAGE_WIDTH),
+            "longest_edge": max(config.IMAGE_HEIGHT, config.IMAGE_WIDTH),
+        },
     )
     train_dataset = MovedObjectDataset(config, split="train")
     val_dataset = MovedObjectDataset(config, split="val")
