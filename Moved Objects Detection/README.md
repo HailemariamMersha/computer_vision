@@ -1,4 +1,8 @@
+<<<<<<< HEAD:Moved Objects Detection/README.md
 # Moved Object Detection (using Pixel Diff into DETR)
+=======
+#  Moved Object Detection ( Pixel Diff into DETR)
+>>>>>>> 4998c857582c3ea12d289e885cf5a299bf36701f:Assignment3/README.md
 
 This repo implements Option 2 as described in the handout: take the pixel-wise difference between two frames and fine-tune `facebook/detr-resnet-50` on the moved objects. The pipeline is processor-based (no COCO JSON needed for training/eval).
 
