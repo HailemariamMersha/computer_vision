@@ -1,5 +1,9 @@
 <<<<<<< HEAD:Moved Objects Detection/README.md
+<<<<<<< HEAD:Moved Objects Detection/README.md
 # Moved Object Detection (using Pixel Diff into DETR)
+=======
+#  Moved Object Detection ( Pixel Diff into DETR)
+>>>>>>> 4998c857582c3ea12d289e885cf5a299bf36701f:Assignment3/README.md
 =======
 #  Moved Object Detection ( Pixel Diff into DETR)
 >>>>>>> 4998c857582c3ea12d289e885cf5a299bf36701f:Assignment3/README.md
